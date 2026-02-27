@@ -155,6 +155,11 @@ public class QueueEngine(
         return _workerPool.GetAllStatsAsync();
     }
 
+    public Task<IEnumerable<WorkerInfo>> GetActiveWorkersAsync()
+    {
+        return _repository.GetActiveWorkersAsync();
+    }
+
     private static void ValidateJobType(string jobType)
     {
         if (string.IsNullOrWhiteSpace(jobType))

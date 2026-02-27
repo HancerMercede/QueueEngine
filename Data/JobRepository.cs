@@ -78,9 +78,19 @@ public class JobRepository : IJobRepository
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     completed_at TEXT,
-                    cancellation_requested INTEGER NOT NULL DEFAULT 0
+                    cancellation_requested INTEGER NOT NULL DEFAULT 0,
+                    worker_id TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
+            ");
+
+            await conn.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS queue_workers (
+                    worker_id TEXT PRIMARY KEY,
+                    queues TEXT NOT NULL,
+                    last_heartbeat TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                );
             ");
         }
         else if (_provider == "postgres")
@@ -101,9 +111,19 @@ public class JobRepository : IJobRepository
                     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     started_at TIMESTAMP,
                     completed_at TIMESTAMP,
-                    cancellation_requested BOOLEAN NOT NULL DEFAULT FALSE
+                    cancellation_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                    worker_id VARCHAR(255)
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
+            ");
+
+            await conn.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS queue_workers (
+                    worker_id VARCHAR(255) PRIMARY KEY,
+                    queues VARCHAR(1000) NOT NULL,
+                    last_heartbeat TIMESTAMP NOT NULL DEFAULT NOW(),
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE
+                );
             ");
         }
     }
@@ -161,7 +181,7 @@ public class JobRepository : IJobRepository
         }
     }
 
-    public async Task<QueueJob?> DequeueAsync(string queue)
+    public async Task<QueueJob?> DequeueAsync(string queue, string? workerId = null)
     {
         var now = DateTime.UtcNow.ToString("o");
         
@@ -174,7 +194,7 @@ public class JobRepository : IJobRepository
 
                 var job = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
                     UPDATE queue_jobs 
-                    SET status = @RunningStatus, started_at = @Now
+                    SET status = @RunningStatus, started_at = @Now, worker_id = @WorkerId
                     WHERE id = (
                         SELECT id FROM queue_jobs 
                         WHERE queue = @Queue 
@@ -187,7 +207,8 @@ public class JobRepository : IJobRepository
                     Queue = queue, 
                     PendingStatus = (int)JobStatus.Pending,
                     RunningStatus = (int)JobStatus.Running,
-                    Now = now
+                    Now = now,
+                    WorkerId = workerId ?? (object)DBNull.Value
                 });
 
                 if (job == null) return null;
@@ -201,7 +222,7 @@ public class JobRepository : IJobRepository
 
             var job = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
                 UPDATE queue_jobs 
-                SET status = @RunningStatus, started_at = @Now
+                SET status = @RunningStatus, started_at = @Now, worker_id = @WorkerId
                 WHERE id = (
                     SELECT id FROM queue_jobs 
                     WHERE queue = @Queue 
@@ -214,7 +235,8 @@ public class JobRepository : IJobRepository
                 Queue = queue, 
                 PendingStatus = (int)JobStatus.Pending,
                 RunningStatus = (int)JobStatus.Running,
-                Now = now
+                Now = now,
+                WorkerId = workerId ?? (object)DBNull.Value
             });
 
             if (job == null) return null;
@@ -570,6 +592,178 @@ public class JobRepository : IJobRepository
                 LIMIT 100", new { Queue = queue, FailedStatus = (int)JobStatus.Failed });
 
             return jobs.Select(MapToJobPostgres).ToList();
+        }
+    }
+
+    public async Task RecoverStaleJobsAsync(string workerId, int staleTimeoutSeconds)
+    {
+        var staleTimeout = DateTime.UtcNow.AddSeconds(-staleTimeoutSeconds).ToString("o");
+
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_jobs 
+                    SET status = @PendingStatus, started_at = NULL, worker_id = NULL
+                    WHERE worker_id = @WorkerId 
+                    AND status = @RunningStatus 
+                    AND started_at < @StaleTimeout",
+                    new { WorkerId = workerId, RunningStatus = (int)JobStatus.Running, PendingStatus = (int)JobStatus.Pending, StaleTimeout = staleTimeout });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_jobs 
+                SET status = @PendingStatus, started_at = NULL, worker_id = NULL
+                WHERE worker_id = @WorkerId 
+                AND status = @RunningStatus 
+                AND started_at < @StaleTimeout",
+                new { WorkerId = workerId, RunningStatus = (int)JobStatus.Running, PendingStatus = (int)JobStatus.Pending, StaleTimeout = staleTimeout });
+        }
+    }
+
+    public async Task RegisterWorkerAsync(string workerId, string[] queues, int heartbeatIntervalSeconds)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        var queuesJson = string.Join(",", queues);
+
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    INSERT OR REPLACE INTO queue_workers (worker_id, queues, last_heartbeat, is_active)
+                    VALUES (@WorkerId, @Queues, @LastHeartbeat, 1)",
+                    new { WorkerId = workerId, Queues = queuesJson, LastHeartbeat = now });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                INSERT INTO queue_workers (worker_id, queues, last_heartbeat, is_active)
+                VALUES (@WorkerId, @Queues, @LastHeartbeat, true)
+                ON CONFLICT (worker_id) DO UPDATE SET
+                    queues = @Queues,
+                    last_heartbeat = @LastHeartbeat,
+                    is_active = true",
+                new { WorkerId = workerId, Queues = queuesJson, LastHeartbeat = now });
+        }
+    }
+
+    public async Task HeartbeatAsync(string workerId)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_workers 
+                    SET last_heartbeat = @LastHeartbeat
+                    WHERE worker_id = @WorkerId",
+                    new { WorkerId = workerId, LastHeartbeat = now });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_workers 
+                SET last_heartbeat = @LastHeartbeat
+                WHERE worker_id = @WorkerId",
+                new { WorkerId = workerId, LastHeartbeat = now });
+        }
+    }
+
+    public async Task UnregisterWorkerAsync(string workerId)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_workers 
+                    SET is_active = 0
+                    WHERE worker_id = @WorkerId",
+                    new { WorkerId = workerId });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_workers 
+                SET is_active = false
+                WHERE worker_id = @WorkerId",
+                new { WorkerId = workerId });
+        }
+    }
+
+    public async Task<IEnumerable<WorkerInfo>> GetActiveWorkersAsync()
+    {
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var workers = await conn.QueryAsync<dynamic>(@"
+                    SELECT worker_id, queues, last_heartbeat, is_active 
+                    FROM queue_workers 
+                    WHERE is_active = 1");
+
+                return workers.Select(w => new WorkerInfo
+                {
+                    WorkerId = (string)w.worker_id,
+                    Queues = ((string)w.queues).Split(','),
+                    LastHeartbeat = DateTime.Parse((string)w.last_heartbeat),
+                    IsActive = w.is_active == 1
+                }).ToList();
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var workers = await conn.QueryAsync<dynamic>(@"
+                SELECT worker_id, queues, last_heartbeat, is_active 
+                FROM queue_workers 
+                WHERE is_active = true");
+
+            return workers.Select(w => new WorkerInfo
+            {
+                WorkerId = (string)w.worker_id,
+                Queues = ((string)w.queues).Split(','),
+                LastHeartbeat = (DateTime)w.last_heartbeat,
+                IsActive = (bool)w.is_active
+            }).ToList();
         }
     }
 }

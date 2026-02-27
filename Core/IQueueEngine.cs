@@ -1,3 +1,4 @@
+using QueueEngine.Data;
 using QueueEngine.Models;
 using QueueEngine.Workers;
 
@@ -15,4 +16,5 @@ public interface IQueueEngine
     Task MoveToDeadLetterAsync(Guid jobId);
     Task<IEnumerable<QueueJob>> GetDeadLetterJobsAsync(string queue);
     Task<Dictionary<string, (int Pending, int Running, int Done, int Failed, int Cancelled)>> GetStatsAsync();
+    Task<IEnumerable<WorkerInfo>> GetActiveWorkersAsync();
 }

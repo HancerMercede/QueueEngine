@@ -5,17 +5,32 @@ using QueueEngine.Models;
 
 namespace QueueEngine.Workers;
 
-public class QueueWorkerPool(
-    IJobRepository repository,
-    Dictionary<string, IJobHandler> handlers,
-    QueueEngineOptions options,
-    ILogger<QueueWorkerPool> logger)
-    : IQueueWorkerPool
+public class QueueWorkerPool : IQueueWorkerPool
 {
-    private Dictionary<string, IJobHandler> _handlers = handlers;
+    private readonly IJobRepository _repository;
+    private Dictionary<string, IJobHandler> _handlers;
+    private readonly QueueEngineOptions _options;
+    private readonly ILogger<QueueWorkerPool> _logger;
     private readonly Dictionary<string, CancellationTokenSource> _workerCts = new();
     private readonly Dictionary<string, RateLimiter> _rateLimiters = new();
     private readonly Lock _lock = new();
+    private readonly string _workerId;
+    private readonly bool _clusterEnabled;
+    private CancellationTokenSource? _heartbeatCts;
+
+    public QueueWorkerPool(
+        IJobRepository repository,
+        Dictionary<string, IJobHandler> handlers,
+        QueueEngineOptions options,
+        ILogger<QueueWorkerPool> logger)
+    {
+        _repository = repository;
+        _handlers = handlers;
+        _options = options;
+        _logger = logger;
+        _clusterEnabled = options.Cluster.Enabled;
+        _workerId = options.Cluster.WorkerId;
+    }
 
     private static string SanitizeErrorMessage(string message)
     {
@@ -33,9 +48,25 @@ public class QueueWorkerPool(
         _handlers = handlers;
     }
 
-    public void Start()
+    public async void Start()
     {
-        foreach (var (queueName, queueOptions) in options.Queues)
+        if (_clusterEnabled)
+        {
+            var queues = _options.Queues.Keys.ToArray();
+            await _repository.RegisterWorkerAsync(_workerId, queues, _options.Cluster.HeartbeatIntervalSeconds);
+            
+            _heartbeatCts = new CancellationTokenSource();
+            _ = HeartbeatLoopAsync(_heartbeatCts.Token);
+            
+            if (_options.Cluster.EnableJobStealing)
+            {
+                _ = RecoverStaleJobsLoopAsync(_heartbeatCts.Token);
+            }
+            
+            _logger.LogInformation("Worker {WorkerId} registered in cluster mode", _workerId);
+        }
+
+        foreach (var (queueName, queueOptions) in _options.Queues)
         {
             var cts = new CancellationTokenSource();
             _workerCts[queueName] = cts;
@@ -48,13 +79,62 @@ public class QueueWorkerPool(
         }
     }
 
-    public void Stop()
+    public async void Stop()
     {
         lock (_lock)
         {
             foreach (var cts in _workerCts.Values)
             {
                 cts?.Cancel();
+            }
+        }
+
+        if (_clusterEnabled)
+        {
+            _heartbeatCts?.Cancel();
+            await _repository.UnregisterWorkerAsync(_workerId);
+            _logger.LogInformation("Worker {WorkerId} unregistered from cluster", _workerId);
+        }
+    }
+
+    private async Task HeartbeatLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(_options.Cluster.HeartbeatIntervalSeconds), ct);
+                await _repository.HeartbeatAsync(_workerId);
+                _logger.LogDebug("Heartbeat sent for worker {WorkerId}", _workerId);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send heartbeat for worker {WorkerId}", _workerId);
+            }
+        }
+    }
+
+    private async Task RecoverStaleJobsLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(60), ct);
+                await _repository.RecoverStaleJobsAsync(_workerId, _options.Cluster.StaleJobTimeoutSeconds);
+                _logger.LogDebug("Stale job recovery completed for worker {WorkerId}", _workerId);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to recover stale jobs for worker {WorkerId}", _workerId);
             }
         }
     }
@@ -69,7 +149,7 @@ public class QueueWorkerPool(
             {
                 await rateLimiter.WaitAsync(ct);
 
-                var job = await repository.DequeueAsync(queueName);
+                var job = await _repository.DequeueAsync(queueName, _clusterEnabled ? _workerId : null);
                 if (job == null)
                 {
                     await Task.Delay(100, ct);
@@ -78,68 +158,69 @@ public class QueueWorkerPool(
 
                 if (job.CancellationRequested)
                 {
-                    await repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled by user");
-                    logger.LogInformation("Job {JobId} was cancelled", job.Id);
+                    await _repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled by user");
+                    _logger.LogInformation("Job {JobId} was cancelled", job.Id);
                     continue;
                 }
 
                 if (!_handlers.TryGetValue(job.JobType, out var handler))
                 {
-                    logger.LogError("No handler registered for job type '{JobType}'", job.JobType);
-                    await repository.CompleteAsync(job.Id, JobStatus.Failed, $"No handler for type {job.JobType}");
+                    _logger.LogError("No handler registered for job type '{JobType}'", job.JobType);
+                    await _repository.CompleteAsync(job.Id, JobStatus.Failed, $"No handler for type {job.JobType}");
                     continue;
                 }
 
-                logger.LogInformation("Processing job {JobId} of type {JobType}", job.Id, job.JobType);
+                _logger.LogInformation("Processing job {JobId} of type {JobType} on worker {WorkerId}", 
+                    job.Id, job.JobType, _clusterEnabled ? _workerId : "local");
 
                 try
                 {
                     await handler.HandleAsync(job, job.Payload, ct);
                     
-                    var currentJob = await repository.GetJobAsync(job.Id);
+                    var currentJob = await _repository.GetJobAsync(job.Id);
                     if (currentJob?.CancellationRequested == true)
                     {
-                        await repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled during execution");
-                        logger.LogInformation("Job {JobId} was cancelled during execution", job.Id);
+                        await _repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled during execution");
+                        _logger.LogInformation("Job {JobId} was cancelled during execution", job.Id);
                     }
                     else
                     {
-                        await repository.CompleteAsync(job.Id, JobStatus.Done);
-                        logger.LogInformation("Job {JobId} completed successfully", job.Id);
+                        await _repository.CompleteAsync(job.Id, JobStatus.Done);
+                        _logger.LogInformation("Job {JobId} completed successfully", job.Id);
                     }
                 }
                 catch (OperationCanceledException)
                 {
-                    await repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled during execution");
-                    logger.LogInformation("Job {JobId} was cancelled", job.Id);
+                    await _repository.CompleteAsync(job.Id, JobStatus.Cancelled, "Cancelled during execution");
+                    _logger.LogInformation("Job {JobId} was cancelled", job.Id);
                 }
                 catch (Exception ex)
                 {
                     var sanitizedMessage = SanitizeErrorMessage(ex.Message);
-                    var queueConfig = options.Queues[queueName];
+                    var queueConfig = _options.Queues[queueName];
                     var newRetryCount = job.RetryCount + 1;
                     
                     if (newRetryCount < queueConfig.MaxRetries)
                     {
                         var delay = queueConfig.RetryDelaySeconds * (int)Math.Pow(2, job.RetryCount);
-                        logger.LogWarning("Job {JobId} failed, requeueing for retry {RetryCount}/{MaxRetries} after {Delay}s", 
+                        _logger.LogWarning("Job {JobId} failed, requeueing for retry {RetryCount}/{MaxRetries} after {Delay}s", 
                             job.Id, newRetryCount, queueConfig.MaxRetries, delay);
                         
                         await Task.Delay(TimeSpan.FromSeconds(delay), ct);
-                        await repository.RequeueAsync(job.Id, newRetryCount, $"Retry {newRetryCount}: {sanitizedMessage}");
+                        await _repository.RequeueAsync(job.Id, newRetryCount, $"Retry {newRetryCount}: {sanitizedMessage}");
                     }
                     else
                     {
-                        logger.LogError(ex, "Job {JobId} failed permanently after {Retries} retries", job.Id, newRetryCount);
+                        _logger.LogError(ex, "Job {JobId} failed permanently after {Retries} retries", job.Id, newRetryCount);
                         
                         if (queueConfig.EnableDeadLetterQueue)
                         {
-                            await repository.MoveToDeadLetterAsync(job.Id, $"Max retries exceeded: {sanitizedMessage}");
-                            logger.LogInformation("Job {JobId} moved to dead letter queue", job.Id);
+                            await _repository.MoveToDeadLetterAsync(job.Id, $"Max retries exceeded: {sanitizedMessage}");
+                            _logger.LogInformation("Job {JobId} moved to dead letter queue", job.Id);
                         }
                         else
                         {
-                            await repository.CompleteAsync(job.Id, JobStatus.Failed, $"Max retries exceeded: {sanitizedMessage}");
+                            await _repository.CompleteAsync(job.Id, JobStatus.Failed, $"Max retries exceeded: {sanitizedMessage}");
                         }
                     }
                 }
@@ -150,7 +231,7 @@ public class QueueWorkerPool(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Worker error in queue {Queue}", queueName);
+                _logger.LogError(ex, "Worker error in queue {Queue}", queueName);
                 await Task.Delay(1000, ct);
             }
         }
@@ -159,9 +240,9 @@ public class QueueWorkerPool(
     public async Task<Dictionary<string, (int Pending, int Running, int Done, int Failed, int Cancelled)>> GetAllStatsAsync()
     {
         var stats = new Dictionary<string, (int, int, int, int, int)>();
-        foreach (var queueName in options.Queues.Keys)
+        foreach (var queueName in _options.Queues.Keys)
         {
-            var s = await repository.GetStatsAsync(queueName);
+            var s = await _repository.GetStatsAsync(queueName);
             stats[queueName] = s;
         }
         return stats;

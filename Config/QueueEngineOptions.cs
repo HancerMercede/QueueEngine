@@ -10,6 +10,8 @@ public class QueueEngineOptions
     };
     public int MaxRetries { get; set; } = 3;
     public int RetryDelaySeconds { get; set; } = 5;
+    
+    public ClusterOptions Cluster { get; set; } = new();
 
     public void Validate()
     {
@@ -29,6 +31,8 @@ public class QueueEngineOptions
             if (options.RateLimitPerSecond <= 0)
                 throw new ArgumentException($"Queue '{name}': RateLimitPerSecond must be greater than 0");
         }
+        
+        Cluster.Validate();
     }
 }
 
@@ -40,4 +44,27 @@ public class QueueOptions
     public int RetryDelaySeconds { get; set; } = 5;
     public bool EnableDeadLetterQueue { get; set; } = true;
     public string DeadLetterQueueName { get; set; } = "dead-letter";
+}
+
+public class ClusterOptions
+{
+    public bool Enabled { get; set; } = false;
+    public string WorkerId { get; set; } = string.Empty;
+    public int HeartbeatIntervalSeconds { get; set; } = 30;
+    public int StaleJobTimeoutSeconds { get; set; } = 300;
+    public bool EnableJobStealing { get; set; } = true;
+
+    internal void Validate()
+    {
+        if (Enabled && string.IsNullOrWhiteSpace(WorkerId))
+        {
+            WorkerId = $"worker-{Environment.MachineName}-{Guid.NewGuid().ToString("N")[..8]}";
+        }
+        
+        if (HeartbeatIntervalSeconds < 5)
+            throw new ArgumentException("HeartbeatIntervalSeconds must be at least 5");
+        
+        if (StaleJobTimeoutSeconds < 30)
+            throw new ArgumentException("StaleJobTimeoutSeconds must be at least 30");
+    }
 }
