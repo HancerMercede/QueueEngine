@@ -1,0 +1,9 @@
+bin/
+obj/
+*.db
+*.db-journal
+.vs/
+*.user
+*.suo
+.idea/
+*.swp
