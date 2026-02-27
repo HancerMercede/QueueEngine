@@ -56,7 +56,7 @@ public class ClusterOptions
     public int StaleJobTimeoutSeconds { get; set; } = 300;
     public bool EnableJobStealing { get; set; } = true;
 
-    internal void Validate()
+    public void Validate()
     {
         if (Enabled && string.IsNullOrWhiteSpace(WorkerId))
         {
