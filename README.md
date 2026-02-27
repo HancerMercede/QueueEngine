@@ -246,6 +246,38 @@ CREATE TABLE queue_jobs (
 CREATE INDEX idx_queue_status ON queue_jobs(queue, status);
 ```
 
+## Security
+
+QueueEngine implements several security best practices:
+
+### Input Validation
+- Job types and queue names are validated against a strict pattern (alphanumeric, dash, underscore only)
+- Maximum length limits prevent buffer overflow attacks
+- Payload size is limited to 1MB by default
+
+### SQL Injection Protection
+- All database queries use parameterized queries via Dapper
+- No string concatenation in SQL queries
+
+### Error Message Sanitization
+- Error messages are truncated to prevent information disclosure
+- Stack traces are never exposed to end users
+- Detailed errors are logged only server-side
+
+### Database Recommendations
+
+| Environment | Database | Notes |
+|-------------|----------|-------|
+| Development | SQLite | Lightweight, no setup required |
+| Production | PostgreSQL | Recommended for concurrent workloads |
+
+> **Warning**: SQLite is not suitable for high-concurrency production workloads due to file-level locking. Always use PostgreSQL for production.
+
+### Connection String Security
+- Never commit connection strings to version control
+- Use environment variables or secure secret management (e.g., Azure Key Vault, AWS Secrets Manager)
+- Connection strings are never logged
+
 ## License
 
 MIT

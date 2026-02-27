@@ -27,6 +27,17 @@ public class QueueWorkerPool : IQueueWorkerPool
         _logger = logger;
     }
 
+    private static string SanitizeErrorMessage(string message)
+    {
+        if (string.IsNullOrEmpty(message))
+            return "Unknown error";
+        
+        if (message.Length > 500)
+            message = message[..500] + "...";
+        
+        return message;
+    }
+
     public void SetHandlers(Dictionary<string, IJobHandler> handlers)
     {
         _handlers = handlers;
@@ -92,8 +103,9 @@ public class QueueWorkerPool : IQueueWorkerPool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Job {JobId} failed: {Error}", job.Id, ex.Message);
-                    await _repository.CompleteAsync(job.Id, JobStatus.Failed, ex.Message);
+                    var sanitizedMessage = SanitizeErrorMessage(ex.Message);
+                    _logger.LogError(ex, "Job {JobId} failed", job.Id);
+                    await _repository.CompleteAsync(job.Id, JobStatus.Failed, sanitizedMessage);
                 }
             }
             catch (OperationCanceledException)
