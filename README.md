@@ -9,6 +9,11 @@ A lightweight, production-ready queue engine for .NET 10 with support for SQLite
 - **Job Handlers**: Strongly-typed job handlers with automatic JSON serialization
 - **Scheduled Jobs**: Support for delayed/scheduled job execution
 - **Rate Limiting**: Per-queue rate limiting to control throughput
+- **Retry Mechanism**: Automatic retry with exponential backoff for failed jobs
+- **Dead Letter Queue**: Move permanently failed jobs for analysis
+- **Job Cancellation**: Cancel pending or running jobs
+- **Bulk Enqueue**: Enqueue multiple jobs at once
+- **Health Checks**: ASP.NET Core health check integration
 - **Dependency Injection**: Full DI support for integration with ASP.NET Core
 - **Logging**: Structured logging using Microsoft.Extensions.Logging
 - **Testable**: Interfaces for all core components for easy unit testing
@@ -29,6 +34,7 @@ dotnet add package Microsoft.Extensions.DependencyInjection
 dotnet add package Microsoft.Extensions.Hosting.Abstractions
 dotnet add package Microsoft.Extensions.Logging
 dotnet add package Microsoft.Extensions.Logging.Console
+dotnet add package Microsoft.Extensions.Diagnostics.HealthChecks
 ```
 
 ## Quick Start
@@ -42,7 +48,6 @@ using QueueEngine.Core;
 using QueueEngine.Data;
 using QueueEngine.Workers;
 
-// Create logger
 var loggerFactory = LoggerFactory.Create(builder =>
 {
     builder.AddConsole();
@@ -51,7 +56,6 @@ var loggerFactory = LoggerFactory.Create(builder =>
 
 var logger = loggerFactory.CreateLogger<QueueEngine.Core.QueueEngine>();
 
-// Configure options
 var options = new QueueEngineOptions
 {
     ConnectionString = "Data Source=queue.db",
@@ -64,19 +68,15 @@ var options = new QueueEngineOptions
 
 options.Validate();
 
-// Create components
 var repository = new JobRepository(options);
 var workerPool = new QueueWorkerPool(repository, new Dictionary<string, IJobHandler>(), options, loggerFactory.CreateLogger<QueueWorkerPool>());
 var engine = new QueueEngine.Core.QueueEngine(repository, workerPool, options, logger);
 
-// Register handlers
 engine.RegisterHandler(new MyJobHandler());
 
-// Start processing
 await engine.EnqueueAsync("my-job", new MyPayload("Hello World"));
 await engine.StartAsync();
 
-// Wait for jobs to complete
 await Task.Delay(5000);
 
 await engine.StopAsync();
@@ -99,6 +99,10 @@ builder.Services
     })
     .AddJobHandler<EmailJobHandler>()
     .AddQueueEngineHostedService();
+
+// Add health checks
+builder.Services.AddHealthChecks()
+    .AddQueueEngineHealthCheck();
 ```
 
 ## Creating Job Handlers
@@ -121,10 +125,7 @@ public class EmailJobHandler : JobHandler<SendEmailPayload>
 
     protected override async Task HandleAsync(QueueJob job, SendEmailPayload payload, CancellationToken ct)
     {
-        // Your logic here
         Console.WriteLine($"Sending email to {payload.To}");
-        
-        // Simulate work
         await Task.Delay(500, ct);
     }
 }
@@ -137,6 +138,36 @@ engine.RegisterHandler(new EmailJobHandler());
 await engine.EnqueueAsync("send-email", new SendEmailPayload("user@example.com", "Hello", "World!"));
 ```
 
+## API Reference
+
+### QueueEngine Methods
+
+```csharp
+// Enqueue a single job
+await engine.EnqueueAsync("job-type", payload, "queue-name", scheduledAt: DateTime.UtcNow.AddHours(1));
+
+// Bulk enqueue
+await engine.BulkEnqueueAsync(new[] {
+    ("send-email", new EmailPayload(...), "default"),
+    ("notify-user", new NotificationPayload(...), "critical")
+});
+
+// Cancel a job
+await engine.CancelJobAsync(jobId);
+
+// Get job status
+var job = await engine.GetJobAsync(jobId);
+
+// Move to dead letter
+await engine.MoveToDeadLetterAsync(jobId);
+
+// Get dead letter jobs
+var deadJobs = await engine.GetDeadLetterJobsAsync("default");
+
+// Get queue stats
+var stats = await engine.GetStatsAsync();
+```
+
 ## Configuration
 
 ### QueueEngineOptions
@@ -146,8 +177,6 @@ await engine.EnqueueAsync("send-email", new SendEmailPayload("user@example.com",
 | ConnectionString | string | "Data Source=queue.db" | Database connection string |
 | DatabaseProvider | string | "sqlite" | "sqlite" or "postgres" |
 | Queues | Dictionary | default queue | Queue configurations |
-| MaxRetries | int | 3 | Maximum retry attempts |
-| RetryDelaySeconds | int | 5 | Delay between retries |
 
 ### QueueOptions
 
@@ -155,6 +184,10 @@ await engine.EnqueueAsync("send-email", new SendEmailPayload("user@example.com",
 |----------|------|---------|-------------|
 | Concurrency | int | 1 | Number of concurrent workers |
 | RateLimitPerSecond | int | 10 | Maximum jobs per second |
+| MaxRetries | int | 3 | Maximum retry attempts |
+| RetryDelaySeconds | int | 5 | Base delay between retries |
+| EnableDeadLetterQueue | bool | true | Move failed jobs to DLQ |
+| DeadLetterQueueName | string | "dead-letter" | DLQ queue name |
 
 ## Architecture
 
@@ -178,105 +211,33 @@ QueueEngine/
 ├── Handlers/
 │   └── ExampleHandlers.cs          # Example handlers
 ├── QueueEngineExtensions.cs        # DI extensions
+├── QueueEngineHealthCheck.cs       # Health check
 └── Program.cs                      # Demo application
-```
-
-## Key Interfaces
-
-### IQueueEngine
-
-```csharp
-public interface IQueueEngine
-{
-    void RegisterHandler(IJobHandler handler);
-    Task StartAsync();
-    Task StopAsync();
-    Task<Guid> EnqueueAsync(string jobType, object payload, string queue = "default", DateTime? scheduledAt = null);
-    Task<Dictionary<string, (int Pending, int Running, int Done, int Failed)>> GetStatsAsync();
-}
-```
-
-### IJobHandler
-
-```csharp
-public interface IJobHandler
-{
-    string JobType { get; }
-    Task HandleAsync(QueueJob job, string payload, CancellationToken ct);
-}
-```
-
-## Database Schema
-
-### SQLite
-
-```sql
-CREATE TABLE queue_jobs (
-    id TEXT PRIMARY KEY,
-    job_type TEXT NOT NULL,
-    queue TEXT NOT NULL DEFAULT 'default',
-    payload TEXT NOT NULL DEFAULT '{}',
-    status INTEGER NOT NULL DEFAULT 0,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    scheduled_at TEXT,
-    created_at TEXT NOT NULL,
-    started_at TEXT,
-    completed_at TEXT
-);
-CREATE INDEX idx_queue_status ON queue_jobs(queue, status);
-```
-
-### PostgreSQL
-
-```sql
-CREATE TABLE queue_jobs (
-    id UUID PRIMARY KEY,
-    job_type VARCHAR(255) NOT NULL,
-    queue VARCHAR(255) NOT NULL DEFAULT 'default',
-    payload TEXT NOT NULL DEFAULT '{}',
-    status INTEGER NOT NULL DEFAULT 0,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
-    scheduled_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP
-);
-CREATE INDEX idx_queue_status ON queue_jobs(queue, status);
 ```
 
 ## Security
 
-QueueEngine implements several security best practices:
-
 ### Input Validation
-- Job types and queue names are validated against a strict pattern (alphanumeric, dash, underscore only)
-- Maximum length limits prevent buffer overflow attacks
-- Payload size is limited to 1MB by default
+- Job types and queue names validated (alphanumeric, dash, underscore only)
+- Maximum length limits (255 chars job type, 100 chars queue)
+- Payload size limited to 1MB
 
 ### SQL Injection Protection
-- All database queries use parameterized queries via Dapper
-- No string concatenation in SQL queries
+- Parameterized queries via Dapper
+- No string concatenation in SQL
 
 ### Error Message Sanitization
-- Error messages are truncated to prevent information disclosure
-- Stack traces are never exposed to end users
-- Detailed errors are logged only server-side
+- Truncated to 500 chars
+- Stack traces never exposed
 
-### Database Recommendations
+## Database Recommendations
 
 | Environment | Database | Notes |
 |-------------|----------|-------|
 | Development | SQLite | Lightweight, no setup required |
 | Production | PostgreSQL | Recommended for concurrent workloads |
 
-> **Warning**: SQLite is not suitable for high-concurrency production workloads due to file-level locking. Always use PostgreSQL for production.
-
-### Connection String Security
-- Never commit connection strings to version control
-- Use environment variables or secure secret management (e.g., Azure Key Vault, AWS Secrets Manager)
-- Connection strings are never logged
+> **Warning**: SQLite is not suitable for high-concurrency production. Always use PostgreSQL.
 
 ## License
 

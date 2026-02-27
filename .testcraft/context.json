@@ -1,8 +1,8 @@
 {
   "_meta": {
     "version": "3.0.0",
-    "createdAt": "2026-02-27T18:19:38.750Z",
-    "updatedAt": "2026-02-27T18:19:38.750Z",
+    "createdAt": "2026-02-27T18:51:31.997Z",
+    "updatedAt": "2026-02-27T18:51:31.997Z",
     "projectRoot": "C:\\Users\\HANCER MERCEDE\\QueueEngine",
     "projectName": "QueueEngine",
     "scanCommand": "node testcraft-init.js",
@@ -58,7 +58,7 @@
   "learnedStyle": null,
   "files": {
     "testDirs": [],
-    "srcFileCount": 13,
+    "srcFileCount": 14,
     "testFileCount": 0,
     "allSrcFiles": [
       "Config\\QueueEngineOptions.cs",
@@ -70,6 +70,7 @@
       "Models\\QueueJob.cs",
       "Program.cs",
       "QueueEngineExtensions.cs",
+      "QueueEngineHealthCheck.cs",
       "Workers\\IJobHandler.cs",
       "Workers\\IQueueWorkerPool.cs",
       "Workers\\QueueWorkerPool.cs",
@@ -90,12 +91,13 @@
       "Models\\QueueJob.cs",
       "Program.cs",
       "QueueEngineExtensions.cs",
+      "QueueEngineHealthCheck.cs",
       "Workers\\IJobHandler.cs",
       "Workers\\IQueueWorkerPool.cs",
       "Workers\\QueueWorkerPool.cs",
       "Workers\\RateLimiter.cs"
     ],
-    "totalSrcFiles": 13,
+    "totalSrcFiles": 14,
     "nextSuggested": [
       "Config\\QueueEngineOptions.cs",
       "Core\\IQueueEngine.cs",
