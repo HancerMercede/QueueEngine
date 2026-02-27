@@ -555,6 +555,93 @@ await engine.EnqueueAsync("send-welcome-email", payload, "critical");
 await engine.EnqueueAsync("generate-report", payload, "bulk");
 ```
 
+### 7. Job Priority
+
+Jobs can be prioritized within a queue. Higher priority jobs are processed first:
+
+```csharp
+// Enqueue with priority (0 = lowest, higher = first)
+await engine.EnqueueAsync("process-payment", payment, "default", priority: 10);
+await engine.EnqueueAsync("send-notification", notification, "default", priority: 5);
+await engine.EnqueueAsync("log-analytics", data, "default", priority: 1);
+
+// Configure max priority per queue
+Queues = new Dictionary<string, QueueOptions>
+{
+    ["default"] = new QueueOptions 
+    { 
+        Concurrency = 4, 
+        RateLimitPerSecond = 20,
+        MaxPriority = 100  // Default is 10
+    }
+}
+```
+
+### 8. Job Progress Reporting
+
+Handlers can report progress during execution:
+
+```csharp
+public class ImportJobHandler : JobHandler<ImportPayload>
+{
+    protected override async Task HandleAsync(
+        QueueJob job, 
+        ImportPayload payload, 
+        IProgress<int>? progress,  // New parameter
+        CancellationToken ct)
+    {
+        var items = await LoadItemsAsync(payload.FilePath, ct);
+        var total = items.Count;
+        
+        for (int i = 0; i < total; i++)
+        {
+            await ProcessItemAsync(items[i], ct);
+            progress?.Report((i + 1) * 100 / total);  // Report 0-100%
+        }
+    }
+}
+```
+
+### 9. Pause/Resume Queue
+
+Individual queues can be paused without stopping the entire engine:
+
+```csharp
+// Start a queue in paused state
+Queues = new Dictionary<string, QueueOptions>
+{
+    ["bulk"] = new QueueOptions 
+    { 
+        Concurrency = 1, 
+        StartPaused = true  // Start paused
+    }
+}
+
+// Or pause/resume at runtime
+await engine.PauseQueueAsync("bulk");
+await engine.ResumeQueueAsync("bulk");
+
+// Check if queue is paused
+var isPaused = await engine.IsQueuePausedAsync("bulk");
+```
+
+### 10. Queue Statistics
+
+Get detailed statistics for any queue:
+
+```csharp
+// Get stats for all queues
+var allStats = await engine.GetStatsAsync();
+foreach (var (queue, stats) in allStats)
+{
+    Console.WriteLine($"{queue}: Pending={stats.Pending}, Running={stats.Running}, Done={stats.Done}, Failed={stats.Failed}");
+}
+
+// Get stats for a specific queue
+var stats = await engine.GetQueueStatsAsync("default");
+Console.WriteLine($"Pending: {stats.Pending}, Running: {stats.Running}, Done: {stats.Done}");
+```
+
 ---
 
 ## Troubleshooting

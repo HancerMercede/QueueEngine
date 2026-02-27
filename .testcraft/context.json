@@ -1,8 +1,8 @@
 {
   "_meta": {
     "version": "3.0.0",
-    "createdAt": "2026-02-27T19:22:19.716Z",
-    "updatedAt": "2026-02-27T19:22:19.716Z",
+    "createdAt": "2026-02-27T20:33:24.589Z",
+    "updatedAt": "2026-02-27T20:33:24.589Z",
     "projectRoot": "C:\\Users\\HANCER MERCEDE\\QueueEngine",
     "projectName": "QueueEngine",
     "scanCommand": "node testcraft-init.js",
@@ -32,34 +32,83 @@
       "Data",
       "Handlers",
       "Models",
+      "QueueEngine.Tests",
+      "QueueEngine.Tests\\Config",
+      "QueueEngine.Tests\\Core",
+      "QueueEngine.Tests\\Models",
+      "QueueEngine.Tests\\Workers",
       "Workers"
     ],
     "folderMap": {}
   },
   "detectedTools": {
-    "testFramework": null,
-    "mockLib": null,
+    "testFramework": "xUnit",
+    "mockLib": "Moq",
     "assertLib": null,
     "e2eTool": null,
     "configFiles": [
-      "QueueEngine.csproj"
+      "QueueEngine.csproj",
+      "QueueEngine.Tests\\QueueEngine.Tests.csproj"
     ],
     "testScript": "dotnet test",
-    "hasCoverage": false
+    "hasCoverage": true
   },
   "chosenTools": {
-    "testFramework": null,
-    "mockLib": null,
+    "testFramework": "xUnit",
+    "mockLib": "Moq",
     "assertLib": null,
     "e2eTool": null,
-    "confirmed": false,
-    "confirmedAt": null
+    "confirmed": true,
+    "confirmedAt": "2026-02-27T20:33:24.589Z"
   },
-  "learnedStyle": null,
+  "learnedStyle": {
+    "fileNaming": ".test",
+    "coLocation": true,
+    "separateTestDir": false,
+    "describeExamples": [],
+    "itExamples": [],
+    "assertionStyle": [],
+    "mockingStyle": [
+      "Moq (.NET)"
+    ],
+    "factoryPatterns": [],
+    "usesAAAComments": false,
+    "importExamples": [
+      "using QueueEngine.Config;",
+      "using Xunit;",
+      "using Microsoft.Extensions.Logging;",
+      "using Moq;",
+      "using QueueEngine.Core;",
+      "using QueueEngine.Data;",
+      "using QueueEngine.Models;",
+      "using QueueEngine.Workers;"
+    ],
+    "codeSnippets": [
+      {
+        "file": "QueueEngine.Tests\\Config\\QueueEngineOptionsTests.cs",
+        "snippet": "using QueueEngine.Config;\nusing Xunit;\nnamespace QueueEngine.Tests.Config;\npublic class QueueEngineOptionsTests\n{\n    [Fact]\n    public void Validate_WithValidOptions_ShouldNotThrow()\n    {\n        var options = new QueueEngineOptions\n        {\n            ConnectionString = \"Data Source=test.db\",\n            DatabaseProvider = \"sqlite\",\n            Queues = new Dictionary<string, QueueOptions>\n            {\n                [\"default\"] = new QueueOptions { Concurrency = 2, RateLimitPerSecond = 10 }\n            }\n        };\n        options.Validate();\n    }\n    [Fact]\n    public void Validate_WithEmptyConnectionString_ShouldThrow()\n    {\n        var options = new QueueEngineOptions\n        {\n            ConnectionString = \"\","
+      },
+      {
+        "file": "QueueEngine.Tests\\Core\\QueueEngineTests.cs",
+        "snippet": "using Microsoft.Extensions.Logging;\nusing Moq;\nusing QueueEngine.Config;\nusing QueueEngine.Core;\nusing QueueEngine.Data;\nusing QueueEngine.Models;\nusing QueueEngine.Workers;\nusing Xunit;\nnamespace QueueEngine.Tests.Core;\npublic class QueueEngineTests\n{\n    private readonly Mock<IJobRepository> _mockRepository;\n    private readonly Mock<IQueueWorkerPool> _mockWorkerPool;\n    private readonly Mock<ILogger<QueueEngine.Core.QueueEngine>> _mockLogger;\n    private readonly QueueEngineOptions _options;\n    private readonly QueueEngine.Core.QueueEngine _engine;\n    public QueueEngineTests()\n    {\n        _mockRepository = new Mock<IJobRepository>();\n        _mockWorkerPool = new Mock<IQueueWorkerPool>();\n        _mockLogger = new Mock<ILogger<QueueEngine.Core.QueueEngine>>();\n        _options = new QueueEngineOptions\n        {\n            ConnectionString = \"Data Source=test.db\",\n            DatabaseProvider = \"sqlite\","
+      },
+      {
+        "file": "QueueEngine.Tests\\Models\\QueueJobTests.cs",
+        "snippet": "using QueueEngine.Models;\nusing Xunit;\nnamespace QueueEngine.Tests.Models;\npublic class QueueJobTests\n{\n    [Fact]\n    public void QueueJob_DefaultValues()\n    {\n        var job = new QueueJob();\n        Assert.Equal(Guid.Empty, job.Id);\n        Assert.Equal(\"default\", job.Queue);\n        Assert.Equal(\"{}\", job.Payload);\n        Assert.Equal(JobStatus.Pending, job.Status);\n        Assert.Equal(0, job.RetryCount);\n    }\n    [Fact]\n    public void JobStatus_HasAllValues()\n    {\n        var statuses = Enum.GetValues<JobStatus>();\n        Assert.Contains(JobStatus.Pending, statuses);\n        Assert.Contains(JobStatus.Running, statuses);\n        Assert.Contains(JobStatus.Done, statuses);\n        Assert.Contains(JobStatus.Failed, statuses);\n        Assert.Contains(JobStatus.Cancelled, statuses);\n    }"
+      }
+    ],
+    "totalTestsFound": 4
+  },
   "files": {
-    "testDirs": [],
+    "testDirs": [
+      "QueueEngine.Tests",
+      "QueueEngine.Tests\\Config",
+      "QueueEngine.Tests\\Core",
+      "QueueEngine.Tests\\Models",
+      "QueueEngine.Tests\\Workers"
+    ],
     "srcFileCount": 14,
-    "testFileCount": 0,
+    "testFileCount": 4,
     "allSrcFiles": [
       "Config\\QueueEngineOptions.cs",
       "Core\\IQueueEngine.cs",
@@ -76,34 +125,40 @@
       "Workers\\QueueWorkerPool.cs",
       "Workers\\RateLimiter.cs"
     ],
-    "allTestFiles": []
+    "allTestFiles": [
+      "QueueEngine.Tests\\Config\\QueueEngineOptionsTests.cs",
+      "QueueEngine.Tests\\Core\\QueueEngineTests.cs",
+      "QueueEngine.Tests\\Models\\QueueJobTests.cs",
+      "QueueEngine.Tests\\Workers\\RateLimiterTests.cs"
+    ]
   },
   "progress": {
-    "coveragePercent": 0,
-    "testedFiles": [],
-    "untestedFiles": [
+    "coveragePercent": 29,
+    "testedFiles": [
       "Config\\QueueEngineOptions.cs",
-      "Core\\IQueueEngine.cs",
       "Core\\QueueEngine.cs",
+      "Models\\QueueJob.cs",
+      "Workers\\RateLimiter.cs"
+    ],
+    "untestedFiles": [
+      "Core\\IQueueEngine.cs",
       "Data\\IJobRepository.cs",
       "Data\\JobRepository.cs",
       "Handlers\\ExampleHandlers.cs",
-      "Models\\QueueJob.cs",
       "Program.cs",
       "QueueEngineExtensions.cs",
       "QueueEngineHealthCheck.cs",
       "Workers\\IJobHandler.cs",
       "Workers\\IQueueWorkerPool.cs",
-      "Workers\\QueueWorkerPool.cs",
-      "Workers\\RateLimiter.cs"
+      "Workers\\QueueWorkerPool.cs"
     ],
     "totalSrcFiles": 14,
     "nextSuggested": [
-      "Config\\QueueEngineOptions.cs",
       "Core\\IQueueEngine.cs",
-      "Core\\QueueEngine.cs",
       "Data\\IJobRepository.cs",
-      "Data\\JobRepository.cs"
+      "Data\\JobRepository.cs",
+      "Handlers\\ExampleHandlers.cs",
+      "Program.cs"
     ],
     "lastTestedFile": null,
     "lastTestedAt": null

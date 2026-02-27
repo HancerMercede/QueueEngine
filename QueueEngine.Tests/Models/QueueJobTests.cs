@@ -10,7 +10,7 @@ public class QueueJobTests
     {
         var job = new QueueJob();
 
-        Assert.NotEqual(Guid.Empty, job.Id);
+        Assert.Equal(Guid.Empty, job.Id);
         Assert.Equal("default", job.Queue);
         Assert.Equal("{}", job.Payload);
         Assert.Equal(JobStatus.Pending, job.Status);

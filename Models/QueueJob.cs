@@ -7,6 +7,8 @@ public class QueueJob
     public string Queue { get; set; } = "default";
     public string Payload { get; set; } = "{}";
     public JobStatus Status { get; set; } = JobStatus.Pending;
+    public int Priority { get; set; } = 0;
+    public int Progress { get; set; }
     public int RetryCount { get; set; }
     public string? ErrorMessage { get; set; }
     public DateTime? ScheduledAt { get; set; }

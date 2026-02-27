@@ -10,6 +10,7 @@ public class JobRepository : IJobRepository
 {
     private readonly string _connectionString;
     private readonly string _provider;
+    private readonly Dictionary<string, bool> _pausedQueues = new();
     private const int MaxRetries = 3;
     private const int RetryDelayMs = 100;
 
@@ -72,6 +73,8 @@ public class JobRepository : IJobRepository
                     queue TEXT NOT NULL DEFAULT 'default',
                     payload TEXT NOT NULL DEFAULT '{}',
                     status INTEGER NOT NULL DEFAULT 0,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    progress INTEGER NOT NULL DEFAULT 0,
                     retry_count INTEGER NOT NULL DEFAULT 0,
                     error_message TEXT,
                     scheduled_at TEXT,
@@ -82,6 +85,7 @@ public class JobRepository : IJobRepository
                     worker_id TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
+                CREATE INDEX IF NOT EXISTS idx_queue_priority ON queue_jobs(queue, priority DESC);
             ");
 
             await conn.ExecuteAsync(@"
@@ -105,6 +109,8 @@ public class JobRepository : IJobRepository
                     queue VARCHAR(255) NOT NULL DEFAULT 'default',
                     payload TEXT NOT NULL DEFAULT '{}',
                     status INTEGER NOT NULL DEFAULT 0,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    progress INTEGER NOT NULL DEFAULT 0,
                     retry_count INTEGER NOT NULL DEFAULT 0,
                     error_message TEXT,
                     scheduled_at TIMESTAMP,
@@ -115,6 +121,7 @@ public class JobRepository : IJobRepository
                     worker_id VARCHAR(255)
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
+                CREATE INDEX IF NOT EXISTS idx_queue_priority ON queue_jobs(queue, priority DESC);
             ");
 
             await conn.ExecuteAsync(@"
@@ -138,8 +145,8 @@ public class JobRepository : IJobRepository
                 await conn.OpenAsync();
 
                 var sql = @"
-                    INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
-                    VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+                    INSERT INTO queue_jobs (id, job_type, queue, payload, status, priority, progress, retry_count, scheduled_at, created_at)
+                    VALUES (@Id, @JobType, @Queue, @Payload, @Status, @Priority, @Progress, @RetryCount, @ScheduledAt, @CreatedAt)";
 
                 await conn.ExecuteAsync(sql, new
                 {
@@ -148,6 +155,8 @@ public class JobRepository : IJobRepository
                     job.Queue,
                     job.Payload,
                     Status = (int)job.Status,
+                    job.Priority,
+                    job.Progress,
                     job.RetryCount,
                     ScheduledAt = job.ScheduledAt?.ToString("o"),
                     CreatedAt = job.CreatedAt.ToString("o")
@@ -162,8 +171,8 @@ public class JobRepository : IJobRepository
             await conn.OpenAsync();
 
             var sql = @"
-                INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
-                VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+                INSERT INTO queue_jobs (id, job_type, queue, payload, status, priority, progress, retry_count, scheduled_at, created_at)
+                VALUES (@Id, @JobType, @Queue, @Payload, @Status, @Priority, @Progress, @RetryCount, @ScheduledAt, @CreatedAt)";
 
             await conn.ExecuteAsync(sql, new
             {
@@ -172,6 +181,8 @@ public class JobRepository : IJobRepository
                 job.Queue,
                 job.Payload,
                 Status = (int)job.Status,
+                job.Priority,
+                job.Progress,
                 job.RetryCount,
                 ScheduledAt = job.ScheduledAt,
                 CreatedAt = job.CreatedAt
@@ -200,7 +211,7 @@ public class JobRepository : IJobRepository
                         WHERE queue = @Queue 
                         AND status = @PendingStatus 
                         AND (scheduled_at IS NULL OR scheduled_at <= @Now)
-                        ORDER BY created_at ASC 
+                        ORDER BY priority DESC, created_at ASC 
                         LIMIT 1
                     )
                     RETURNING *", new { 
@@ -228,10 +239,10 @@ public class JobRepository : IJobRepository
                     WHERE queue = @Queue 
                     AND status = @PendingStatus 
                     AND (scheduled_at IS NULL OR scheduled_at <= @Now)
-                    ORDER BY created_at ASC 
+                    ORDER BY priority DESC, created_at ASC 
                     LIMIT 1
                 )
-                RETURNING id, job_type, queue, payload, status, retry_count, error_message, scheduled_at, created_at, started_at, completed_at", new { 
+                RETURNING id, job_type, queue, payload, status, priority, progress, retry_count, error_message, scheduled_at, created_at, started_at, completed_at", new { 
                 Queue = queue, 
                 PendingStatus = (int)JobStatus.Pending,
                 RunningStatus = (int)JobStatus.Running,
@@ -399,6 +410,8 @@ public class JobRepository : IJobRepository
             Queue = (string)row.queue,
             Payload = (string)row.payload,
             Status = (JobStatus)(int)row.status,
+            Priority = (int)(row.priority ?? 0),
+            Progress = (int)(row.progress ?? 0),
             RetryCount = (int)row.retry_count,
             ErrorMessage = row.error_message,
             ScheduledAt = row.scheduled_at != null ? DateTime.Parse((string)row.scheduled_at) : null,
@@ -418,6 +431,8 @@ public class JobRepository : IJobRepository
             Queue = (string)row.queue,
             Payload = (string)row.payload,
             Status = (JobStatus)(int)row.status,
+            Priority = (int)(row.priority ?? 0),
+            Progress = (int)(row.progress ?? 0),
             RetryCount = (int)row.retry_count,
             ErrorMessage = row.error_message,
             ScheduledAt = row.scheduled_at,
@@ -484,8 +499,8 @@ public class JobRepository : IJobRepository
                 foreach (var job in jobList)
                 {
                     var sql = @"
-                        INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
-                        VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+                        INSERT INTO queue_jobs (id, job_type, queue, payload, status, priority, progress, retry_count, scheduled_at, created_at)
+                        VALUES (@Id, @JobType, @Queue, @Payload, @Status, @Priority, @Progress, @RetryCount, @ScheduledAt, @CreatedAt)";
 
                     await conn.ExecuteAsync(sql, new
                     {
@@ -494,6 +509,8 @@ public class JobRepository : IJobRepository
                         job.Queue,
                         job.Payload,
                         Status = (int)job.Status,
+                        job.Priority,
+                        job.Progress,
                         job.RetryCount,
                         ScheduledAt = job.ScheduledAt?.ToString("o"),
                         CreatedAt = job.CreatedAt.ToString("o")
@@ -513,8 +530,8 @@ public class JobRepository : IJobRepository
             foreach (var job in jobList)
             {
                 var sql = @"
-                    INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
-                    VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+                    INSERT INTO queue_jobs (id, job_type, queue, payload, status, priority, progress, retry_count, scheduled_at, created_at)
+                    VALUES (@Id, @JobType, @Queue, @Payload, @Status, @Priority, @Progress, @RetryCount, @ScheduledAt, @CreatedAt)";
 
                 await conn.ExecuteAsync(sql, new
                 {
@@ -523,6 +540,8 @@ public class JobRepository : IJobRepository
                     job.Queue,
                     job.Payload,
                     Status = (int)job.Status,
+                    job.Priority,
+                    job.Progress,
                     job.RetryCount,
                     ScheduledAt = job.ScheduledAt,
                     CreatedAt = job.CreatedAt
@@ -765,5 +784,45 @@ public class JobRepository : IJobRepository
                 IsActive = (bool)w.is_active
             }).ToList();
         }
+    }
+
+    public async Task UpdateProgressAsync(Guid jobId, int progress)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_jobs 
+                    SET progress = @Progress
+                    WHERE id = @Id",
+                    new { Id = jobId.ToString(), Progress = Math.Clamp(progress, 0, 100) });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_jobs 
+                SET progress = @Progress
+                WHERE id = @Id",
+                new { Id = jobId, Progress = Math.Clamp(progress, 0, 100) });
+        }
+    }
+
+    public Task<bool> IsQueuePausedAsync(string queue)
+    {
+        return Task.FromResult(_pausedQueues.TryGetValue(queue, out var isPaused) && isPaused);
+    }
+
+    public Task SetQueuePausedAsync(string queue, bool paused)
+    {
+        _pausedQueues[queue] = paused;
+        return Task.CompletedTask;
     }
 }

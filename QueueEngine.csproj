@@ -1,11 +1,24 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
+<PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Config\**\*.cs" />
+    <Compile Include="Core\**\*.cs" />
+    <Compile Include="Data\**\*.cs" />
+    <Compile Include="Handlers\**\*.cs" />
+    <Compile Include="Models\**\*.cs" />
+    <Compile Include="Workers\**\*.cs" />
+    <Compile Include="QueueEngineExtensions.cs" />
+    <Compile Include="QueueEngineHealthCheck.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.66" />

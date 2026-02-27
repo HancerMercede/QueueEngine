@@ -20,6 +20,9 @@ public interface IJobRepository
     Task UnregisterWorkerAsync(string workerId);
     Task<IEnumerable<WorkerInfo>> GetActiveWorkersAsync();
     Task<(int Pending, int Running, int Done, int Failed, int Cancelled)> GetStatsAsync(string queue);
+    Task UpdateProgressAsync(Guid jobId, int progress);
+    Task<bool> IsQueuePausedAsync(string queue);
+    Task SetQueuePausedAsync(string queue, bool paused);
 }
 
 public class WorkerInfo

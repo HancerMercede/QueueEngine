@@ -13,7 +13,7 @@ public class QueueEngineTests
 {
     private readonly Mock<IJobRepository> _mockRepository;
     private readonly Mock<IQueueWorkerPool> _mockWorkerPool;
-    private readonly Mock<ILogger<QueueEngine>> _mockLogger;
+    private readonly Mock<ILogger<QueueEngine.Core.QueueEngine>> _mockLogger;
     private readonly QueueEngineOptions _options;
     private readonly QueueEngine.Core.QueueEngine _engine;
 
@@ -21,7 +21,7 @@ public class QueueEngineTests
     {
         _mockRepository = new Mock<IJobRepository>();
         _mockWorkerPool = new Mock<IQueueWorkerPool>();
-        _mockLogger = new Mock<ILogger<QueueEngine>>();
+        _mockLogger = new Mock<ILogger<QueueEngine.Core.QueueEngine>>();
         _options = new QueueEngineOptions
         {
             ConnectionString = "Data Source=test.db",

@@ -15,6 +15,10 @@ A lightweight, production-ready queue engine for .NET 10 with support for SQLite
 - **Dead Letter Queue**: Move permanently failed jobs for analysis
 - **Job Cancellation**: Cancel pending or running jobs
 - **Bulk Enqueue**: Enqueue multiple jobs at once
+- **Job Priority**: Prioritize jobs within a queue (higher priority jobs processed first)
+- **Job Progress**: Handlers can report progress (0-100%) during execution
+- **Pause/Resume Queue**: Pause or resume individual queues without stopping the engine
+- **Queue Statistics**: Get detailed statistics per queue (pending, running, done, failed, cancelled)
 - **Health Checks**: ASP.NET Core health check integration
 - **Dependency Injection**: Full DI support for integration with ASP.NET Core
 - **Logging**: Structured logging using Microsoft.Extensions.Logging
@@ -190,6 +194,8 @@ var stats = await engine.GetStatsAsync();
 | RetryDelaySeconds | int | 5 | Base delay between retries |
 | EnableDeadLetterQueue | bool | true | Move failed jobs to DLQ |
 | DeadLetterQueueName | string | "dead-letter" | DLQ queue name |
+| MaxPriority | int | 10 | Maximum job priority (0 = lowest) |
+| StartPaused | bool | false | Start queue in paused state |
 
 ## Architecture
 

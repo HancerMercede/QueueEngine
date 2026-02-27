@@ -44,6 +44,8 @@ public class QueueOptions
     public int RetryDelaySeconds { get; set; } = 5;
     public bool EnableDeadLetterQueue { get; set; } = true;
     public string DeadLetterQueueName { get; set; } = "dead-letter";
+    public int MaxPriority { get; set; } = 10;
+    public bool StartPaused { get; set; } = false;
 }
 
 public class ClusterOptions

@@ -17,6 +17,7 @@ public class QueueWorkerPool : IQueueWorkerPool
     private readonly string _workerId;
     private readonly bool _clusterEnabled;
     private CancellationTokenSource? _heartbeatCts;
+    private readonly Dictionary<string, bool> _pausedQueues = new();
 
     public QueueWorkerPool(
         IJobRepository repository,
@@ -71,10 +72,17 @@ public class QueueWorkerPool : IQueueWorkerPool
             var cts = new CancellationTokenSource();
             _workerCts[queueName] = cts;
             _rateLimiters[queueName] = new RateLimiter(queueOptions.RateLimitPerSecond);
+            _pausedQueues[queueName] = queueOptions.StartPaused;
+
+            if (queueOptions.StartPaused)
+            {
+                _logger.LogInformation("Queue {QueueName} starts in paused state", queueName);
+                continue;
+            }
 
             for (int i = 0; i < queueOptions.Concurrency; i++)
             {
-                Task.Run(() => WorkerLoopAsync(queueName, cts.Token));
+                _ = Task.Run(() => WorkerLoopAsync(queueName, cts.Token));
             }
         }
     }
@@ -147,6 +155,12 @@ public class QueueWorkerPool : IQueueWorkerPool
         {
             try
             {
+                if (_pausedQueues.TryGetValue(queueName, out var isPaused) && isPaused)
+                {
+                    await Task.Delay(500, ct);
+                    continue;
+                }
+
                 await rateLimiter.WaitAsync(ct);
 
                 var job = await _repository.DequeueAsync(queueName, _clusterEnabled ? _workerId : null);
@@ -175,7 +189,12 @@ public class QueueWorkerPool : IQueueWorkerPool
 
                 try
                 {
-                    await handler.HandleAsync(job, job.Payload, ct);
+                    var progress = new Progress<int>(async p =>
+                    {
+                        await _repository.UpdateProgressAsync(job.Id, p);
+                    });
+                    
+                    await handler.HandleAsync(job, job.Payload, progress, ct);
                     
                     var currentJob = await _repository.GetJobAsync(job.Id);
                     if (currentJob?.CancellationRequested == true)
@@ -246,5 +265,46 @@ public class QueueWorkerPool : IQueueWorkerPool
             stats[queueName] = s;
         }
         return stats;
+    }
+
+    public async Task PauseQueueAsync(string queue)
+    {
+        if (!_options.Queues.ContainsKey(queue))
+            throw new ArgumentException($"Queue '{queue}' is not configured");
+
+        lock (_lock)
+        {
+            _pausedQueues[queue] = true;
+        }
+        _logger.LogInformation("Queue {Queue} paused", queue);
+    }
+
+    public async Task ResumeQueueAsync(string queue)
+    {
+        if (!_options.Queues.ContainsKey(queue))
+            throw new ArgumentException($"Queue '{queue}' is not configured");
+
+        lock (_lock)
+        {
+            _pausedQueues[queue] = false;
+        }
+        
+        var cts = _workerCts[queue];
+        var queueOptions = _options.Queues[queue];
+        
+        for (int i = 0; i < queueOptions.Concurrency; i++)
+        {
+            _ = Task.Run(() => WorkerLoopAsync(queue, cts.Token));
+        }
+        
+        _logger.LogInformation("Queue {Queue} resumed", queue);
+    }
+
+    public Task<bool> IsQueuePausedAsync(string queue)
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(_pausedQueues.TryGetValue(queue, out var isPaused) && isPaused);
+        }
     }
 }

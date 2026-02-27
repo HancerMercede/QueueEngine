@@ -56,10 +56,14 @@ public class QueueEngine(
         return Task.CompletedTask;
     }
 
-    public async Task<Guid> EnqueueAsync(string jobType, object payload, string queue = "default", DateTime? scheduledAt = null)
+    public async Task<Guid> EnqueueAsync(string jobType, object payload, string queue = "default", DateTime? scheduledAt = null, int priority = 0)
     {
         ValidateJobType(jobType);
         ValidateQueueName(queue);
+        
+        var queueOptions = _options.Queues.GetValueOrDefault(queue);
+        if (queueOptions != null && (priority < 0 || priority > queueOptions.MaxPriority))
+            throw new ArgumentException($"Priority must be between 0 and {queueOptions.MaxPriority}");
         
         var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
         
@@ -73,6 +77,7 @@ public class QueueEngine(
             Queue = queue,
             Payload = payloadJson,
             Status = JobStatus.Pending,
+            Priority = priority,
             ScheduledAt = scheduledAt,
             CreatedAt = DateTime.UtcNow
         };
@@ -80,17 +85,21 @@ public class QueueEngine(
         return await _repository.EnqueueAsync(job);
     }
 
-    public async Task BulkEnqueueAsync(IEnumerable<(string JobType, object Payload, string Queue)> jobs)
+    public async Task BulkEnqueueAsync(IEnumerable<(string JobType, object Payload, string Queue, int Priority)> jobs)
     {
         var jobList = jobs.ToList();
         if (!jobList.Any()) return;
 
         var queueJobs = new List<QueueJob>();
         
-        foreach (var (jobType, payload, queue) in jobList)
+        foreach (var (jobType, payload, queue, priority) in jobList)
         {
             ValidateJobType(jobType);
             ValidateQueueName(queue);
+            
+            var queueOptions = _options.Queues.GetValueOrDefault(queue);
+            if (queueOptions != null && (priority < 0 || priority > queueOptions.MaxPriority))
+                throw new ArgumentException($"Priority must be between 0 and {queueOptions.MaxPriority} for queue '{queue}'");
             
             var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
             
@@ -104,6 +113,7 @@ public class QueueEngine(
                 Queue = queue,
                 Payload = payloadJson,
                 Status = JobStatus.Pending,
+                Priority = priority,
                 CreatedAt = DateTime.UtcNow
             });
         }
@@ -158,6 +168,30 @@ public class QueueEngine(
     public Task<IEnumerable<WorkerInfo>> GetActiveWorkersAsync()
     {
         return _repository.GetActiveWorkersAsync();
+    }
+
+    public async Task PauseQueueAsync(string queue)
+    {
+        ValidateQueueName(queue);
+        await _workerPool.PauseQueueAsync(queue);
+    }
+
+    public async Task ResumeQueueAsync(string queue)
+    {
+        ValidateQueueName(queue);
+        await _workerPool.ResumeQueueAsync(queue);
+    }
+
+    public Task<bool> IsQueuePausedAsync(string queue)
+    {
+        ValidateQueueName(queue);
+        return _workerPool.IsQueuePausedAsync(queue);
+    }
+
+    public async Task<(int Pending, int Running, int Done, int Failed, int Cancelled)> GetQueueStatsAsync(string queue)
+    {
+        ValidateQueueName(queue);
+        return await _repository.GetStatsAsync(queue);
     }
 
     private static void ValidateJobType(string jobType)

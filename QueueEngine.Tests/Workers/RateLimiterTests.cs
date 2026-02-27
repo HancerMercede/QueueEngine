@@ -25,12 +25,14 @@ public class RateLimiterTests
     [Fact]
     public async Task WaitAsync_WhenCancelled_ShouldThrow()
     {
-        var limiter = new RateLimiter(10);
+        var limiter = new RateLimiter(1);
         var cts = new CancellationTokenSource();
+        
+        await limiter.WaitAsync(cts.Token);
         
         cts.Cancel();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => 
+        await Assert.ThrowsAsync<TaskCanceledException>(() => 
             limiter.WaitAsync(cts.Token));
     }
 }
