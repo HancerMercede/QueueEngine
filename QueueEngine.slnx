@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="QueueEngine.csproj" />
+  <Project Path="QueueEngine.Tests/QueueEngine.Tests.csproj" />
+</Solution>
