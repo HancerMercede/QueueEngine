@@ -1,0 +1,119 @@
+{
+  "_meta": {
+    "version": "3.0.0",
+    "createdAt": "2026-02-27T18:19:38.750Z",
+    "updatedAt": "2026-02-27T18:19:38.750Z",
+    "projectRoot": "C:\\Users\\HANCER MERCEDE\\QueueEngine",
+    "projectName": "QueueEngine",
+    "scanCommand": "node testcraft-init.js",
+    "refreshCommand": "node testcraft-init.js --refresh"
+  },
+  "project": {
+    "name": "QueueEngine",
+    "version": "0.0.0",
+    "runtime": ".NET",
+    "language": "C#",
+    "framework": ".NET",
+    "packageManager": "NuGet / dotnet CLI",
+    "hasTypeScript": false
+  },
+  "architecture": {
+    "pattern": "Flat / Simple",
+    "layers": [],
+    "testStrategy": "Unit test each module or function. Integration test entry points.",
+    "suggestedTestDirs": [
+      "src",
+      "lib",
+      "app"
+    ],
+    "allDirectories": [
+      "Config",
+      "Core",
+      "Data",
+      "Handlers",
+      "Models",
+      "Workers"
+    ],
+    "folderMap": {}
+  },
+  "detectedTools": {
+    "testFramework": null,
+    "mockLib": null,
+    "assertLib": null,
+    "e2eTool": null,
+    "configFiles": [
+      "QueueEngine.csproj"
+    ],
+    "testScript": "dotnet test",
+    "hasCoverage": false
+  },
+  "chosenTools": {
+    "testFramework": null,
+    "mockLib": null,
+    "assertLib": null,
+    "e2eTool": null,
+    "confirmed": false,
+    "confirmedAt": null
+  },
+  "learnedStyle": null,
+  "files": {
+    "testDirs": [],
+    "srcFileCount": 13,
+    "testFileCount": 0,
+    "allSrcFiles": [
+      "Config\\QueueEngineOptions.cs",
+      "Core\\IQueueEngine.cs",
+      "Core\\QueueEngine.cs",
+      "Data\\IJobRepository.cs",
+      "Data\\JobRepository.cs",
+      "Handlers\\ExampleHandlers.cs",
+      "Models\\QueueJob.cs",
+      "Program.cs",
+      "QueueEngineExtensions.cs",
+      "Workers\\IJobHandler.cs",
+      "Workers\\IQueueWorkerPool.cs",
+      "Workers\\QueueWorkerPool.cs",
+      "Workers\\RateLimiter.cs"
+    ],
+    "allTestFiles": []
+  },
+  "progress": {
+    "coveragePercent": 0,
+    "testedFiles": [],
+    "untestedFiles": [
+      "Config\\QueueEngineOptions.cs",
+      "Core\\IQueueEngine.cs",
+      "Core\\QueueEngine.cs",
+      "Data\\IJobRepository.cs",
+      "Data\\JobRepository.cs",
+      "Handlers\\ExampleHandlers.cs",
+      "Models\\QueueJob.cs",
+      "Program.cs",
+      "QueueEngineExtensions.cs",
+      "Workers\\IJobHandler.cs",
+      "Workers\\IQueueWorkerPool.cs",
+      "Workers\\QueueWorkerPool.cs",
+      "Workers\\RateLimiter.cs"
+    ],
+    "totalSrcFiles": 13,
+    "nextSuggested": [
+      "Config\\QueueEngineOptions.cs",
+      "Core\\IQueueEngine.cs",
+      "Core\\QueueEngine.cs",
+      "Data\\IJobRepository.cs",
+      "Data\\JobRepository.cs"
+    ],
+    "lastTestedFile": null,
+    "lastTestedAt": null
+  },
+  "session": {
+    "currentFile": null,
+    "currentTestType": null,
+    "history": [],
+    "notes": []
+  },
+  "preferences": {
+    "language": null,
+    "additionalContext": null
+  }
+}

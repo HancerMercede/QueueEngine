@@ -9,5 +9,7 @@ public interface IQueueEngine
     Task StartAsync();
     Task StopAsync();
     Task<Guid> EnqueueAsync(string jobType, object payload, string queue = "default", DateTime? scheduledAt = null);
-    Task<Dictionary<string, (int Pending, int Running, int Done, int Failed)>> GetStatsAsync();
+    Task<bool> CancelJobAsync(Guid jobId);
+    Task<QueueJob?> GetJobAsync(Guid jobId);
+    Task<Dictionary<string, (int Pending, int Running, int Done, int Failed, int Cancelled)>> GetStatsAsync();
 }

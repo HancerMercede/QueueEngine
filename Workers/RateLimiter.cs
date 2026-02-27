@@ -1,18 +1,14 @@
 namespace QueueEngine.Workers;
 
-public class RateLimiter
+public class RateLimiter(int maxPerSecond)
 {
-    private readonly int _maxPerSecond;
     private readonly Queue<DateTime> _requests = new();
-    private readonly object _lock = new();
-
-    public RateLimiter(int maxPerSecond)
-    {
-        _maxPerSecond = maxPerSecond;
-    }
+    private readonly Lock _lock = new();
 
     public async Task WaitAsync(CancellationToken ct)
     {
+        TimeSpan waitTime;
+        
         lock (_lock)
         {
             var now = DateTime.UtcNow;
@@ -21,24 +17,24 @@ public class RateLimiter
                 _requests.Dequeue();
             }
 
-            if (_requests.Count >= _maxPerSecond)
+            if (_requests.Count >= maxPerSecond)
             {
-                var waitTime = _requests.Peek() - now.AddSeconds(-1);
-                if (waitTime > TimeSpan.Zero)
-                {
-                    Monitor.Exit(_lock);
-                    try
-                    {
-                        Task.Delay(waitTime, ct).Wait(ct);
-                    }
-                    finally
-                    {
-                        Monitor.Enter(_lock);
-                    }
-                }
+                waitTime = _requests.Peek() - now.AddSeconds(-1);
             }
+            else
+            {
+                waitTime = TimeSpan.Zero;
+            }
+        }
 
-            _requests.Enqueue(now);
+        if (waitTime > TimeSpan.Zero)
+        {
+            await Task.Delay(waitTime, ct);
+        }
+
+        lock (_lock)
+        {
+            _requests.Enqueue(DateTime.UtcNow);
         }
     }
 }

@@ -7,3 +7,6 @@ obj/
 *.suo
 .idea/
 *.swp
+
+# TestCraft — commit context.json to share progress with team
+# .testcraft/context.json

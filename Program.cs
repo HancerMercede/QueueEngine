@@ -51,7 +51,8 @@ foreach (var kvp in stats)
     int running = kvp.Value.Running;
     int done = kvp.Value.Done;
     int failed = kvp.Value.Failed;
-    Console.WriteLine($"Queue '{kvp.Key}':    pending={pending} running={running} done={done} failed={failed}");
+    int cancelled = kvp.Value.Cancelled;
+    Console.WriteLine($"Queue '{kvp.Key}':    pending={pending} running={running} done={done} failed={failed} cancelled={cancelled}");
 }
 
 await engine.StopAsync();

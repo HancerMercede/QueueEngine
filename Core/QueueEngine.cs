@@ -7,35 +7,27 @@ using QueueEngine.Workers;
 
 namespace QueueEngine.Core;
 
-public class QueueEngine : IQueueEngine
+public class QueueEngine(
+    IJobRepository repository,
+    IQueueWorkerPool workerPool,
+    QueueEngineOptions options,
+    ILogger<QueueEngine> logger) : IQueueEngine
 {
-    private readonly IJobRepository _repository;
-    private readonly IQueueWorkerPool _workerPool;
+    private readonly IJobRepository _repository = repository;
+    private readonly IQueueWorkerPool _workerPool = workerPool;
     private readonly Dictionary<string, IJobHandler> _handlers = new();
-    private readonly QueueEngineOptions _options;
-    private readonly ILogger<QueueEngine> _logger;
+    private readonly QueueEngineOptions _options = options;
+    private readonly ILogger<QueueEngine> _logger = logger;
     private bool _started;
 
     private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9\-_]+$", RegexOptions.Compiled);
-    private const int MaxPayloadSize = 1024 * 1024; // 1MB
-
-    public QueueEngine(
-        IJobRepository repository,
-        IQueueWorkerPool workerPool,
-        QueueEngineOptions options,
-        ILogger<QueueEngine> logger)
-    {
-        _repository = repository;
-        _workerPool = workerPool;
-        _options = options;
-        _logger = logger;
-    }
+    private const int MaxPayloadSize = 1024 * 1024;
 
     public void RegisterHandler(IJobHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
         
-        if (!IsValidJobType(handler.JobType))
+        if (!IsValidName(handler.JobType))
             throw new ArgumentException($"Invalid job type: {handler.JobType}. Only alphanumeric, dash, underscore allowed.");
         
         _handlers[handler.JobType] = handler;
@@ -88,7 +80,23 @@ public class QueueEngine : IQueueEngine
         return await _repository.EnqueueAsync(job);
     }
 
-    public Task<Dictionary<string, (int Pending, int Running, int Done, int Failed)>> GetStatsAsync()
+    public async Task<bool> CancelJobAsync(Guid jobId)
+    {
+        if (jobId == Guid.Empty)
+            throw new ArgumentException("Job ID cannot be empty", nameof(jobId));
+        
+        return await _repository.RequestCancellationAsync(jobId);
+    }
+
+    public Task<QueueJob?> GetJobAsync(Guid jobId)
+    {
+        if (jobId == Guid.Empty)
+            throw new ArgumentException("Job ID cannot be empty", nameof(jobId));
+        
+        return _repository.GetJobAsync(jobId);
+    }
+
+    public Task<Dictionary<string, (int Pending, int Running, int Done, int Failed, int Cancelled)>> GetStatsAsync()
     {
         return _workerPool.GetAllStatsAsync();
     }
@@ -101,7 +109,7 @@ public class QueueEngine : IQueueEngine
         if (jobType.Length > 255)
             throw new ArgumentException("Job type exceeds maximum length of 255 characters", nameof(jobType));
         
-        if (!IsValidJobType(jobType))
+        if (!IsValidName(jobType))
             throw new ArgumentException($"Invalid job type: {jobType}. Only alphanumeric, dash, underscore allowed.", nameof(jobType));
     }
 
@@ -113,9 +121,9 @@ public class QueueEngine : IQueueEngine
         if (queue.Length > 100)
             throw new ArgumentException("Queue name exceeds maximum length of 100 characters", nameof(queue));
         
-        if (!IsValidJobType(queue))
+        if (!IsValidName(queue))
             throw new ArgumentException($"Invalid queue name: {queue}. Only alphanumeric, dash, underscore allowed.", nameof(queue));
     }
 
-    private static bool IsValidJobType(string name) => SafeNameRegex.IsMatch(name);
+    private static bool IsValidName(string name) => SafeNameRegex.IsMatch(name);
 }

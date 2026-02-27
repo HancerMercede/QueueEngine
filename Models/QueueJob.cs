@@ -13,6 +13,7 @@ public class QueueJob
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public bool CancellationRequested { get; set; }
 }
 
 public enum JobStatus
@@ -20,5 +21,6 @@ public enum JobStatus
     Pending,
     Running,
     Done,
-    Failed
+    Failed,
+    Cancelled
 }

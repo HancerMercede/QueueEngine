@@ -77,7 +77,8 @@ public class JobRepository : IJobRepository
                     scheduled_at TEXT,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    cancellation_requested INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
             ");
@@ -99,7 +100,8 @@ public class JobRepository : IJobRepository
                     scheduled_at TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                     started_at TIMESTAMP,
-                    completed_at TIMESTAMP
+                    completed_at TIMESTAMP,
+                    cancellation_requested BOOLEAN NOT NULL DEFAULT FALSE
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue_jobs(queue, status);
             ");
@@ -251,7 +253,7 @@ public class JobRepository : IJobRepository
         }
     }
 
-    public async Task<(int Pending, int Running, int Done, int Failed)> GetStatsAsync(string queue)
+    public async Task<(int Pending, int Running, int Done, int Failed, int Cancelled)> GetStatsAsync(string queue)
     {
         if (_provider == "sqlite")
         {
@@ -265,7 +267,8 @@ public class JobRepository : IJobRepository
                         SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as pending,
                         SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as running,
                         SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) as done,
-                        SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as failed
+                        SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as failed,
+                        SUM(CASE WHEN status = 4 THEN 1 ELSE 0 END) as cancelled
                     FROM queue_jobs 
                     WHERE queue = @Queue", new { Queue = queue });
 
@@ -273,7 +276,8 @@ public class JobRepository : IJobRepository
                     (int)(stats?.pending ?? 0),
                     (int)(stats?.running ?? 0),
                     (int)(stats?.done ?? 0),
-                    (int)(stats?.failed ?? 0)
+                    (int)(stats?.failed ?? 0),
+                    (int)(stats?.cancelled ?? 0)
                 );
             });
         }
@@ -287,7 +291,8 @@ public class JobRepository : IJobRepository
                     SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) as pending,
                     SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as running,
                     SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) as done,
-                    SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as failed
+                    SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN status = 4 THEN 1 ELSE 0 END) as cancelled
                 FROM queue_jobs 
                 WHERE queue = @Queue", new { Queue = queue });
 
@@ -295,8 +300,71 @@ public class JobRepository : IJobRepository
                 (int)(stats?.pending ?? 0),
                 (int)(stats?.running ?? 0),
                 (int)(stats?.done ?? 0),
-                (int)(stats?.failed ?? 0)
+                (int)(stats?.failed ?? 0),
+                (int)(stats?.cancelled ?? 0)
             );
+        }
+    }
+
+    public async Task<bool> RequestCancellationAsync(Guid jobId)
+    {
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var rowsAffected = await conn.ExecuteAsync(@"
+                    UPDATE queue_jobs 
+                    SET cancellation_requested = 1
+                    WHERE id = @Id AND status IN (0, 1)",
+                    new { Id = jobId.ToString() });
+
+                return rowsAffected > 0;
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var rowsAffected = await conn.ExecuteAsync(@"
+                UPDATE queue_jobs 
+                SET cancellation_requested = true
+                WHERE id = @Id AND status IN (0, 1)",
+                new { Id = jobId });
+
+            return rowsAffected > 0;
+        }
+    }
+
+    public async Task<QueueJob?> GetJobAsync(Guid jobId)
+    {
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var job = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+                    SELECT * FROM queue_jobs WHERE id = @Id",
+                    new { Id = jobId.ToString() });
+
+                return job == null ? null : MapToJobSqlite(job);
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var job = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+                SELECT * FROM queue_jobs WHERE id = @Id",
+                new { Id = jobId });
+
+            return job == null ? null : MapToJobPostgres(job);
         }
     }
 
@@ -314,7 +382,8 @@ public class JobRepository : IJobRepository
             ScheduledAt = row.scheduled_at != null ? DateTime.Parse((string)row.scheduled_at) : null,
             CreatedAt = DateTime.Parse((string)row.created_at),
             StartedAt = row.started_at != null ? DateTime.Parse((string)row.started_at) : null,
-            CompletedAt = row.completed_at != null ? DateTime.Parse((string)row.completed_at) : null
+            CompletedAt = row.completed_at != null ? DateTime.Parse((string)row.completed_at) : null,
+            CancellationRequested = row.cancellation_requested == 1
         };
     }
 
@@ -332,7 +401,8 @@ public class JobRepository : IJobRepository
             ScheduledAt = row.scheduled_at,
             CreatedAt = (DateTime)row.created_at,
             StartedAt = row.started_at,
-            CompletedAt = row.completed_at
+            CompletedAt = row.completed_at,
+            CancellationRequested = row.cancellation_requested == true
         };
     }
 }

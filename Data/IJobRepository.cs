@@ -8,5 +8,7 @@ public interface IJobRepository
     Task<Guid> EnqueueAsync(QueueJob job);
     Task<QueueJob?> DequeueAsync(string queue);
     Task CompleteAsync(Guid jobId, JobStatus status, string? errorMessage = null);
-    Task<(int Pending, int Running, int Done, int Failed)> GetStatsAsync(string queue);
+    Task<bool> RequestCancellationAsync(Guid jobId);
+    Task<QueueJob?> GetJobAsync(Guid jobId);
+    Task<(int Pending, int Running, int Done, int Failed, int Cancelled)> GetStatsAsync(string queue);
 }
