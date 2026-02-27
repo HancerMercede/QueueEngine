@@ -2,6 +2,8 @@
 
 A lightweight, production-ready queue engine for .NET 10 with support for SQLite and PostgreSQL.
 
+> **📖 For detailed usage guide, see [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)**
+
 ## Features
 
 - **Multiple Queues**: Support for multiple named queues with individual concurrency and rate limiting
