@@ -36,4 +36,8 @@ public class QueueOptions
 {
     public int Concurrency { get; set; } = 1;
     public int RateLimitPerSecond { get; set; } = 10;
+    public int MaxRetries { get; set; } = 3;
+    public int RetryDelaySeconds { get; set; } = 5;
+    public bool EnableDeadLetterQueue { get; set; } = true;
+    public string DeadLetterQueueName { get; set; } = "dead-letter";
 }

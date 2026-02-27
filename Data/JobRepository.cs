@@ -405,4 +405,171 @@ public class JobRepository : IJobRepository
             CancellationRequested = row.cancellation_requested == true
         };
     }
+
+    public async Task RequeueAsync(Guid jobId, int retryCount, string? errorMessage = null)
+    {
+        var now = DateTime.UtcNow.ToString("o");
+        
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_jobs 
+                    SET status = @PendingStatus, 
+                        retry_count = @RetryCount, 
+                        error_message = @ErrorMessage,
+                        started_at = NULL,
+                        completed_at = NULL
+                    WHERE id = @Id",
+                    new { Id = jobId.ToString(), PendingStatus = (int)JobStatus.Pending, RetryCount = retryCount, ErrorMessage = errorMessage });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_jobs 
+                SET status = @PendingStatus, 
+                    retry_count = @RetryCount, 
+                    error_message = @ErrorMessage,
+                    started_at = NULL,
+                    completed_at = NULL
+                WHERE id = @Id",
+                new { Id = jobId, PendingStatus = (int)JobStatus.Pending, RetryCount = retryCount, ErrorMessage = errorMessage });
+        }
+    }
+
+    public async Task BulkEnqueueAsync(IEnumerable<QueueJob> jobs)
+    {
+        var jobList = jobs.ToList();
+        if (!jobList.Any()) return;
+
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                using var transaction = conn.BeginTransaction();
+                
+                foreach (var job in jobList)
+                {
+                    var sql = @"
+                        INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
+                        VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+
+                    await conn.ExecuteAsync(sql, new
+                    {
+                        Id = job.Id.ToString(),
+                        job.JobType,
+                        job.Queue,
+                        job.Payload,
+                        Status = (int)job.Status,
+                        job.RetryCount,
+                        ScheduledAt = job.ScheduledAt?.ToString("o"),
+                        CreatedAt = job.CreatedAt.ToString("o")
+                    }, transaction);
+                }
+
+                transaction.Commit();
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            using var transaction = conn.BeginTransaction();
+            
+            foreach (var job in jobList)
+            {
+                var sql = @"
+                    INSERT INTO queue_jobs (id, job_type, queue, payload, status, retry_count, scheduled_at, created_at)
+                    VALUES (@Id, @JobType, @Queue, @Payload, @Status, @RetryCount, @ScheduledAt, @CreatedAt)";
+
+                await conn.ExecuteAsync(sql, new
+                {
+                    Id = job.Id,
+                    job.JobType,
+                    job.Queue,
+                    job.Payload,
+                    Status = (int)job.Status,
+                    job.RetryCount,
+                    ScheduledAt = job.ScheduledAt,
+                    CreatedAt = job.CreatedAt
+                }, transaction);
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    public async Task MoveToDeadLetterAsync(Guid jobId, string? errorMessage = null)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_jobs 
+                    SET queue = @NewQueue, error_message = @ErrorMessage
+                    WHERE id = @Id",
+                    new { Id = jobId.ToString(), NewQueue = "dead-letter", ErrorMessage = errorMessage });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_jobs 
+                SET queue = @NewQueue, error_message = @ErrorMessage
+                WHERE id = @Id",
+                new { Id = jobId, NewQueue = "dead-letter", ErrorMessage = errorMessage });
+        }
+    }
+
+    public async Task<IEnumerable<QueueJob>> GetDeadLetterJobsAsync(string queue)
+    {
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var jobs = await conn.QueryAsync<dynamic>(@"
+                    SELECT * FROM queue_jobs 
+                    WHERE queue = @Queue AND status = @FailedStatus
+                    ORDER BY completed_at DESC
+                    LIMIT 100", new { Queue = queue, FailedStatus = (int)JobStatus.Failed });
+
+                return jobs.Select(MapToJobSqlite).ToList();
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var jobs = await conn.QueryAsync<dynamic>(@"
+                SELECT * FROM queue_jobs 
+                WHERE queue = @Queue AND status = @FailedStatus
+                ORDER BY completed_at DESC
+                LIMIT 100", new { Queue = queue, FailedStatus = (int)JobStatus.Failed });
+
+            return jobs.Select(MapToJobPostgres).ToList();
+        }
+    }
 }

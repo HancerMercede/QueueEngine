@@ -80,6 +80,37 @@ public class QueueEngine(
         return await _repository.EnqueueAsync(job);
     }
 
+    public async Task BulkEnqueueAsync(IEnumerable<(string JobType, object Payload, string Queue)> jobs)
+    {
+        var jobList = jobs.ToList();
+        if (!jobList.Any()) return;
+
+        var queueJobs = new List<QueueJob>();
+        
+        foreach (var (jobType, payload, queue) in jobList)
+        {
+            ValidateJobType(jobType);
+            ValidateQueueName(queue);
+            
+            var payloadJson = System.Text.Json.JsonSerializer.Serialize(payload);
+            
+            if (payloadJson.Length > MaxPayloadSize)
+                throw new ArgumentException($"Payload exceeds maximum size of {MaxPayloadSize} bytes");
+            
+            queueJobs.Add(new QueueJob
+            {
+                Id = Guid.NewGuid(),
+                JobType = jobType,
+                Queue = queue,
+                Payload = payloadJson,
+                Status = JobStatus.Pending,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        await _repository.BulkEnqueueAsync(queueJobs);
+    }
+
     public async Task<bool> CancelJobAsync(Guid jobId)
     {
         if (jobId == Guid.Empty)
@@ -94,6 +125,29 @@ public class QueueEngine(
             throw new ArgumentException("Job ID cannot be empty", nameof(jobId));
         
         return _repository.GetJobAsync(jobId);
+    }
+
+    public async Task MoveToDeadLetterAsync(Guid jobId)
+    {
+        if (jobId == Guid.Empty)
+            throw new ArgumentException("Job ID cannot be empty", nameof(jobId));
+        
+        var job = await _repository.GetJobAsync(jobId);
+        if (job == null)
+            throw new InvalidOperationException("Job not found");
+        
+        var queueConfig = _options.Queues.GetValueOrDefault(job.Queue);
+        if (queueConfig?.EnableDeadLetterQueue != true)
+            return;
+        
+        await _repository.MoveToDeadLetterAsync(jobId, job.ErrorMessage);
+        _logger.LogInformation("Job {JobId} moved to dead letter queue", jobId);
+    }
+
+    public async Task<IEnumerable<QueueJob>> GetDeadLetterJobsAsync(string queue)
+    {
+        ValidateQueueName(queue);
+        return await _repository.GetDeadLetterJobsAsync(queue);
     }
 
     public Task<Dictionary<string, (int Pending, int Running, int Done, int Failed, int Cancelled)>> GetStatsAsync()

@@ -116,8 +116,32 @@ public class QueueWorkerPool(
                 catch (Exception ex)
                 {
                     var sanitizedMessage = SanitizeErrorMessage(ex.Message);
-                    logger.LogError(ex, "Job {JobId} failed", job.Id);
-                    await repository.CompleteAsync(job.Id, JobStatus.Failed, sanitizedMessage);
+                    var queueConfig = options.Queues[queueName];
+                    var newRetryCount = job.RetryCount + 1;
+                    
+                    if (newRetryCount < queueConfig.MaxRetries)
+                    {
+                        var delay = queueConfig.RetryDelaySeconds * (int)Math.Pow(2, job.RetryCount);
+                        logger.LogWarning("Job {JobId} failed, requeueing for retry {RetryCount}/{MaxRetries} after {Delay}s", 
+                            job.Id, newRetryCount, queueConfig.MaxRetries, delay);
+                        
+                        await Task.Delay(TimeSpan.FromSeconds(delay), ct);
+                        await repository.RequeueAsync(job.Id, newRetryCount, $"Retry {newRetryCount}: {sanitizedMessage}");
+                    }
+                    else
+                    {
+                        logger.LogError(ex, "Job {JobId} failed permanently after {Retries} retries", job.Id, newRetryCount);
+                        
+                        if (queueConfig.EnableDeadLetterQueue)
+                        {
+                            await repository.MoveToDeadLetterAsync(job.Id, $"Max retries exceeded: {sanitizedMessage}");
+                            logger.LogInformation("Job {JobId} moved to dead letter queue", job.Id);
+                        }
+                        else
+                        {
+                            await repository.CompleteAsync(job.Id, JobStatus.Failed, $"Max retries exceeded: {sanitizedMessage}");
+                        }
+                    }
                 }
             }
             catch (OperationCanceledException)
