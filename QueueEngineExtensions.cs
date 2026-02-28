@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using QueueEngine.Config;
 using QueueEngine.Core;
 using QueueEngine.Data;
+using QueueEngine.Scheduling;
 using QueueEngine.Workers;
 
 namespace QueueEngine;
@@ -28,14 +29,31 @@ public static class QueueEngineExtensions
                 options,
                 logger);
         });
+        
+        if (options.Scheduler.Enabled)
+        {
+            services.AddSingleton<IScheduler>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<Scheduler>>();
+                return new Scheduler(
+                    sp.GetRequiredService<IJobRepository>(),
+                    options,
+                    logger);
+            });
+        }
+        
         services.AddSingleton<IQueueEngine>(sp =>
         {
             var logger = sp.GetRequiredService<ILogger<QueueEngine.Core.QueueEngine>>();
+            var scheduler = options.Scheduler.Enabled 
+                ? sp.GetService<IScheduler>() 
+                : null;
             return new QueueEngine.Core.QueueEngine(
                 sp.GetRequiredService<IJobRepository>(),
                 sp.GetRequiredService<IQueueWorkerPool>(),
                 options,
-                logger);
+                logger,
+                scheduler);
         });
         
         return services;

@@ -12,6 +12,7 @@ public class QueueEngineOptions
     public int RetryDelaySeconds { get; set; } = 5;
     
     public ClusterOptions Cluster { get; set; } = new();
+    public SchedulerOptions Scheduler { get; set; } = new();
 
     public void Validate()
     {
@@ -69,4 +70,10 @@ public class ClusterOptions
         if (StaleJobTimeoutSeconds < 30)
             throw new ArgumentException("StaleJobTimeoutSeconds must be at least 30");
     }
+}
+
+public class SchedulerOptions
+{
+    public bool Enabled { get; set; } = false;
+    public int CheckIntervalSeconds { get; set; } = 10;
 }

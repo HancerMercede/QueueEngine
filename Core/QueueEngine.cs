@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using QueueEngine.Config;
 using QueueEngine.Data;
 using QueueEngine.Models;
+using QueueEngine.Scheduling;
 using QueueEngine.Workers;
 
 namespace QueueEngine.Core;
@@ -11,13 +12,15 @@ public class QueueEngine(
     IJobRepository repository,
     IQueueWorkerPool workerPool,
     QueueEngineOptions options,
-    ILogger<QueueEngine> logger) : IQueueEngine
+    ILogger<QueueEngine> logger,
+    IScheduler? scheduler = null) : IQueueEngine
 {
     private readonly IJobRepository _repository = repository;
     private readonly IQueueWorkerPool _workerPool = workerPool;
     private readonly Dictionary<string, IJobHandler> _handlers = new();
     private readonly QueueEngineOptions _options = options;
     private readonly ILogger<QueueEngine> _logger = logger;
+    private readonly IScheduler? _scheduler = scheduler;
     private bool _started;
 
     private static readonly Regex SafeNameRegex = new(@"^[a-zA-Z0-9\-_]+$", RegexOptions.Compiled);
@@ -45,6 +48,13 @@ public class QueueEngine(
         }
         
         _workerPool.Start();
+        
+        if (_scheduler != null && _options.Scheduler.Enabled)
+        {
+            _scheduler.Start();
+            _logger.LogInformation("Scheduler started with check interval {Interval}s", _options.Scheduler.CheckIntervalSeconds);
+        }
+        
         _started = true;
         
         _logger.LogInformation("QueueEngine started with {QueueCount} queue(s).", _options.Queues.Count);
@@ -53,6 +63,12 @@ public class QueueEngine(
     public Task StopAsync()
     {
         _workerPool.Stop();
+        
+        if (_scheduler != null)
+        {
+            _scheduler.Stop();
+        }
+        
         return Task.CompletedTask;
     }
 
@@ -192,6 +208,33 @@ public class QueueEngine(
     {
         ValidateQueueName(queue);
         return await _repository.GetStatsAsync(queue);
+    }
+
+    public async Task ScheduleJobAsync(string jobType, object payload, string cronExpression, string queue = "default")
+    {
+        if (_scheduler == null)
+            throw new InvalidOperationException("Scheduler is not configured. Enable scheduling in QueueEngineOptions.");
+        
+        ValidateJobType(jobType);
+        ValidateQueueName(queue);
+        
+        await _scheduler.ScheduleAsync(jobType, payload, cronExpression, queue);
+    }
+
+    public async Task UnscheduleJobAsync(string scheduleId)
+    {
+        if (_scheduler == null)
+            throw new InvalidOperationException("Scheduler is not configured.");
+        
+        await _scheduler.UnscheduleAsync(scheduleId);
+    }
+
+    public async Task<IEnumerable<JobSchedule>> GetSchedulesAsync(string? queue = null)
+    {
+        if (_scheduler == null)
+            throw new InvalidOperationException("Scheduler is not configured.");
+        
+        return await _scheduler.GetSchedulesAsync(queue);
     }
 
     private static void ValidateJobType(string jobType)

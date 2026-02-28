@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Npgsql;
 using QueueEngine.Config;
 using QueueEngine.Models;
+using QueueEngine.Scheduling;
 
 namespace QueueEngine.Data;
 
@@ -96,6 +97,21 @@ public class JobRepository : IJobRepository
                     is_active INTEGER NOT NULL DEFAULT 1
                 );
             ");
+
+            await conn.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS queue_schedules (
+                    id TEXT PRIMARY KEY,
+                    job_type TEXT NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    queue TEXT NOT NULL DEFAULT 'default',
+                    cron_expression TEXT NOT NULL,
+                    next_run_at TEXT,
+                    last_run_at TEXT,
+                    is_enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON queue_schedules(next_run_at, is_enabled);
+            ");
         }
         else if (_provider == "postgres")
         {
@@ -131,6 +147,21 @@ public class JobRepository : IJobRepository
                     last_heartbeat TIMESTAMP NOT NULL DEFAULT NOW(),
                     is_active BOOLEAN NOT NULL DEFAULT TRUE
                 );
+            ");
+
+            await conn.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS queue_schedules (
+                    id VARCHAR(255) PRIMARY KEY,
+                    job_type VARCHAR(255) NOT NULL,
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    queue VARCHAR(255) NOT NULL DEFAULT 'default',
+                    cron_expression VARCHAR(100) NOT NULL,
+                    next_run_at TIMESTAMP,
+                    last_run_at TIMESTAMP,
+                    is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_schedules_next_run ON queue_schedules(next_run_at, is_enabled);
             ");
         }
     }
@@ -824,5 +855,210 @@ public class JobRepository : IJobRepository
     {
         _pausedQueues[queue] = paused;
         return Task.CompletedTask;
+    }
+
+    public async Task SaveScheduleAsync(JobSchedule schedule)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var sql = @"
+                    INSERT INTO queue_schedules (id, job_type, payload, queue, cron_expression, next_run_at, is_enabled, created_at)
+                    VALUES (@Id, @JobType, @Payload, @Queue, @CronExpression, @NextRunAt, @IsEnabled, @CreatedAt)";
+
+                await conn.ExecuteAsync(sql, new
+                {
+                    schedule.Id,
+                    schedule.JobType,
+                    schedule.Payload,
+                    schedule.Queue,
+                    schedule.CronExpression,
+                    NextRunAt = schedule.NextRunAt?.ToString("o"),
+                    IsEnabled = schedule.IsEnabled ? 1 : 0,
+                    CreatedAt = schedule.CreatedAt.ToString("o")
+                });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var sql = @"
+                INSERT INTO queue_schedules (id, job_type, payload, queue, cron_expression, next_run_at, is_enabled, created_at)
+                VALUES (@Id, @JobType, @Payload, @Queue, @CronExpression, @NextRunAt, @IsEnabled, @CreatedAt)";
+
+            await conn.ExecuteAsync(sql, new
+            {
+                schedule.Id,
+                schedule.JobType,
+                schedule.Payload,
+                schedule.Queue,
+                schedule.CronExpression,
+                schedule.NextRunAt,
+                schedule.IsEnabled,
+                schedule.CreatedAt
+            });
+        }
+    }
+
+    public async Task UpdateScheduleAsync(JobSchedule schedule)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync(@"
+                    UPDATE queue_schedules 
+                    SET next_run_at = @NextRunAt, last_run_at = @LastRunAt, is_enabled = @IsEnabled
+                    WHERE id = @Id",
+                    new
+                    {
+                        schedule.Id,
+                        NextRunAt = schedule.NextRunAt?.ToString("o"),
+                        LastRunAt = schedule.LastRunAt?.ToString("o"),
+                        IsEnabled = schedule.IsEnabled ? 1 : 0
+                    });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync(@"
+                UPDATE queue_schedules 
+                SET next_run_at = @NextRunAt, last_run_at = @LastRunAt, is_enabled = @IsEnabled
+                WHERE id = @Id",
+                schedule);
+        }
+    }
+
+    public async Task DeleteScheduleAsync(string scheduleId)
+    {
+        if (_provider == "sqlite")
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await conn.ExecuteAsync("DELETE FROM queue_schedules WHERE id = @Id", 
+                    new { Id = scheduleId });
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            await conn.ExecuteAsync("DELETE FROM queue_schedules WHERE id = @Id", 
+                new { Id = scheduleId });
+        }
+    }
+
+    public async Task<IEnumerable<JobSchedule>> GetSchedulesAsync(string? queue = null)
+    {
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var sql = "SELECT * FROM queue_schedules";
+                if (!string.IsNullOrEmpty(queue))
+                    sql += " WHERE queue = @Queue";
+
+                var results = await conn.QueryAsync<dynamic>(sql, new { Queue = queue });
+
+                return results.Select(MapToScheduleSqlite).ToList();
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var sql = "SELECT * FROM queue_schedules";
+            if (!string.IsNullOrEmpty(queue))
+                sql += " WHERE queue = @Queue";
+
+            var results = await conn.QueryAsync<dynamic>(sql, new { Queue = queue });
+
+            return results.Select(MapToSchedulePostgres).ToList();
+        }
+    }
+
+    public async Task<IEnumerable<JobSchedule>> GetDueSchedulesAsync()
+    {
+        var now = DateTime.UtcNow.ToString("o");
+
+        if (_provider == "sqlite")
+        {
+            return await ExecuteWithRetryAsync(async () =>
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                var results = await conn.QueryAsync<dynamic>(@"
+                    SELECT * FROM queue_schedules 
+                    WHERE is_enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= @Now",
+                    new { Now = now });
+
+                return results.Select(MapToScheduleSqlite).ToList();
+            });
+        }
+        else
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync();
+
+            var results = await conn.QueryAsync<dynamic>(@"
+                SELECT * FROM queue_schedules 
+                WHERE is_enabled = true AND next_run_at IS NOT NULL AND next_run_at <= @Now",
+                new { Now = DateTime.UtcNow });
+
+            return results.Select(MapToSchedulePostgres).ToList();
+        }
+    }
+
+    private static JobSchedule MapToScheduleSqlite(dynamic row)
+    {
+        return new JobSchedule
+        {
+            Id = (string)row.id,
+            JobType = (string)row.job_type,
+            Payload = (string)row.payload,
+            Queue = (string)row.queue,
+            CronExpression = (string)row.cron_expression,
+            NextRunAt = row.next_run_at != null ? DateTime.Parse((string)row.next_run_at) : null,
+            LastRunAt = row.last_run_at != null ? DateTime.Parse((string)row.last_run_at) : null,
+            IsEnabled = row.is_enabled == 1,
+            CreatedAt = DateTime.Parse((string)row.created_at)
+        };
+    }
+
+    private static JobSchedule MapToSchedulePostgres(dynamic row)
+    {
+        return new JobSchedule
+        {
+            Id = (string)row.id,
+            JobType = (string)row.job_type,
+            Payload = (string)row.payload,
+            Queue = (string)row.queue,
+            CronExpression = (string)row.cron_expression,
+            NextRunAt = row.next_run_at,
+            LastRunAt = row.last_run_at,
+            IsEnabled = (bool)row.is_enabled,
+            CreatedAt = (DateTime)row.created_at
+        };
     }
 }

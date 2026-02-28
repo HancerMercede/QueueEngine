@@ -14,6 +14,7 @@
     <Compile Include="Data\**\*.cs" />
     <Compile Include="Handlers\**\*.cs" />
     <Compile Include="Models\**\*.cs" />
+    <Compile Include="Scheduling\**\*.cs" />
     <Compile Include="Workers\**\*.cs" />
     <Compile Include="QueueEngineExtensions.cs" />
     <Compile Include="QueueEngineHealthCheck.cs" />
@@ -21,6 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Cronos" Version="0.8.4" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />

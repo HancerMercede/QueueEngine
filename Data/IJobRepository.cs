@@ -1,4 +1,5 @@
 using QueueEngine.Models;
+using QueueEngine.Scheduling;
 
 namespace QueueEngine.Data;
 
@@ -23,6 +24,12 @@ public interface IJobRepository
     Task UpdateProgressAsync(Guid jobId, int progress);
     Task<bool> IsQueuePausedAsync(string queue);
     Task SetQueuePausedAsync(string queue, bool paused);
+    
+    Task SaveScheduleAsync(JobSchedule schedule);
+    Task UpdateScheduleAsync(JobSchedule schedule);
+    Task DeleteScheduleAsync(string scheduleId);
+    Task<IEnumerable<JobSchedule>> GetSchedulesAsync(string? queue = null);
+    Task<IEnumerable<JobSchedule>> GetDueSchedulesAsync();
 }
 
 public class WorkerInfo

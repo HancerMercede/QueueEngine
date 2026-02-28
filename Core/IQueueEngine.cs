@@ -1,5 +1,6 @@
 using QueueEngine.Data;
 using QueueEngine.Models;
+using QueueEngine.Scheduling;
 using QueueEngine.Workers;
 
 namespace QueueEngine.Core;
@@ -21,4 +22,8 @@ public interface IQueueEngine
     Task ResumeQueueAsync(string queue);
     Task<bool> IsQueuePausedAsync(string queue);
     Task<(int Pending, int Running, int Done, int Failed, int Cancelled)> GetQueueStatsAsync(string queue);
+    
+    Task ScheduleJobAsync(string jobType, object payload, string cronExpression, string queue = "default");
+    Task UnscheduleJobAsync(string scheduleId);
+    Task<IEnumerable<JobSchedule>> GetSchedulesAsync(string? queue = null);
 }

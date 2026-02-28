@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QueueEngine Dashboard</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+        .logo { font-size: 20px; font-weight: 700; color: #58a6ff; }
+        .badge { background: #238636; color: white; font-size: 12px; padding: 2px 8px; border-radius: 12px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; }
+        .card-title { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .card-value { font-size: 32px; font-weight: 700; }
+        .card-value.green { color: #3fb950; }
+        .card-value.yellow { color: #d29922; }
+        .card-value.red { color: #f85149; }
+        .card-value.blue { color: #58a6ff; }
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #f0f6fc; }
+        .queue-table { width: 100%; border-collapse: collapse; }
+        .queue-table th { text-align: left; padding: 12px; background: #161b22; border: 1px solid #30363d; color: #8b949e; font-size: 12px; text-transform: uppercase; }
+        .queue-table td { padding: 12px; border: 1px solid #30363d; font-size: 14px; }
+        .queue-table tr:hover { background: #161b22; }
+        .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+        .status.running { background: #3fb950; }
+        .status.paused { background: #d29922; }
+        .btn { background: #238636; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn:hover { background: #2ea043; }
+        .btn.pause { background: #d29922; }
+        .btn.pause:hover { background: #e3b341; }
+        .refresh { position: fixed; bottom: 24px; right: 24px; background: #58a6ff; color: white; border: none; width: 48px; height: 48px; border-radius: 50%; font-size: 20px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .loading { text-align: center; padding: 40px; color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        function App() {
+            const [stats, setStats] = useState(null);
+            const [queues, setQueues] = useState([]);
+            const [loading, setLoading] = useState(true);
+            
+            const fetchData = async () => {
+                try {
+                    const res = await fetch('/api/stats');
+                    const data = await res.json();
+                    setStats(data);
+                    setQueues(Object.entries(data.queues).map(([name, s]) => ({ name, ...s })));
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            useEffect(() => {
+                fetchData();
+                const interval = setInterval(fetchData, 5000);
+                return () => clearInterval(interval);
+            }, []);
+            
+            const handlePause = async (queue) => {
+                await fetch(`/api/queues/${queue}/pause`, { method: 'POST' });
+                fetchData();
+            };
+            
+            const handleResume = async (queue) => {
+                await fetch(`/api/queues/${queue}/resume`, { method: 'POST' });
+                fetchData();
+            };
+            
+            if (loading) return <div class="loading">Loading...</div>;
+            
+            const totals = stats?.totals || { pending: 0, running: 0, done: 0, failed: 0 };
+            
+            return (
+                <div>
+                    <div class="header">
+                        <span class="logo">⚡ QueueEngine</span>
+                        <span class="badge">Dashboard</span>
+                    </div>
+                    <div class="container">
+                        <div class="grid">
+                            <div class="card">
+                                <div class="card-title">Pending</div>
+                                <div class="card-value yellow">{totals.pending}</div>
+                            </div>
+                            <div class="card">
+                                <div class="card-title">Running</div>
+                                <div class="card-value blue">{totals.running}</div>
+                            </div>
+                            <div class="card">
+                                <div class="card-title">Completed</div>
+                                <div class="card-value green">{totals.done}</div>
+                            </div>
+                            <div class="card">
+                                <div class="card-title">Failed</div>
+                                <div class="card-value red">{totals.failed}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="section-title">Queues</div>
+                        <table class="queue-table">
+                            <thead>
+                                <tr>
+                                    <th>Queue</th>
+                                    <th>Pending</th>
+                                    <th>Running</th>
+                                    <th>Done</th>
+                                    <th>Failed</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {queues.map(q => (
+                                    <tr key={q.name}>
+                                        <td><strong>{q.name}</strong></td>
+                                        <td>{q.Pending}</td>
+                                        <td>{q.Running}</td>
+                                        <td>{q.Done}</td>
+                                        <td>{q.Failed}</td>
+                                        <td>
+                                            <span class="status running"></span>
+                                            Active
+                                        </td>
+                                        <td>
+                                            <button class="btn pause" onClick={() => handlePause(q.name)}>Pause</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        
+                        <div class="section-title" style={{ marginTop: 24 }}>Workers</div>
+                        <table class="queue-table">
+                            <thead>
+                                <tr>
+                                    <th>Worker ID</th>
+                                    <th>Queues</th>
+                                    <th>Last Heartbeat</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {(stats?.workers || []).map(w => (
+                                    <tr key={w.workerId}>
+                                        <td>{w.workerId}</td>
+                                        <td>{w.queues?.join(', ') || '-'}</td>
+                                        <td>{new Date(w.lastHeartbeat).toLocaleString()}</td>
+                                        <td>
+                                            <span class="status running"></span>
+                                            Active
+                                        </td>
+                                    </tr>
+                                ))}
+                                {(stats?.workers || []).length === 0 && (
+                                    <tr><td colSpan="4" style={{ textAlign: 'center', color: '#8b949e' }}>No workers active</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <button class="refresh" onClick={fetchData}>↻</button>
+                </div>
+            );
+        }
+        
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
