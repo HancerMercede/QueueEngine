@@ -9,7 +9,7 @@ A lightweight, production-ready queue engine for .NET 10 with support for SQLite
 - **Multiple Queues**: Support for multiple named queues with individual concurrency and rate limiting
 - **Dual Database Support**: SQLite for development, PostgreSQL for production
 - **Job Handlers**: Strongly-typed job handlers with automatic JSON serialization
-- **Scheduled Jobs**: Support for delayed/scheduled job execution
+- **CRON Scheduling**: Schedule recurring jobs using CRON expressions
 - **Rate Limiting**: Per-queue rate limiting to control throughput
 - **Retry Mechanism**: Automatic retry with exponential backoff for failed jobs
 - **Dead Letter Queue**: Move permanently failed jobs for analysis
@@ -20,9 +20,11 @@ A lightweight, production-ready queue engine for .NET 10 with support for SQLite
 - **Pause/Resume Queue**: Pause or resume individual queues without stopping the engine
 - **Queue Statistics**: Get detailed statistics per queue (pending, running, done, failed, cancelled)
 - **Health Checks**: ASP.NET Core health check integration
+- **Dashboard**: Web-based dashboard for monitoring queues and workers
 - **Dependency Injection**: Full DI support for integration with ASP.NET Core
 - **Logging**: Structured logging using Microsoft.Extensions.Logging
 - **Testable**: Interfaces for all core components for easy unit testing
+- **Distributed Cluster**: Worker registration, heartbeats, and job stealing support
 
 ## Installation
 
@@ -41,6 +43,31 @@ dotnet add package Microsoft.Extensions.Hosting.Abstractions
 dotnet add package Microsoft.Extensions.Logging
 dotnet add package Microsoft.Extensions.Logging.Console
 dotnet add package Microsoft.Extensions.Diagnostics.HealthChecks
+```
+
+## Dashboard
+
+Run the built-in dashboard to monitor your queues in real-time:
+
+```bash
+cd src/QueueEngine.Dashboard
+dotnet run
+```
+
+Then open http://localhost:5000 in your browser.
+
+The dashboard provides:
+- Real-time job statistics (pending, running, done, failed)
+- Queue management (pause/resume)
+- Worker status monitoring
+
+## Benchmarks
+
+Run performance benchmarks to test throughput:
+
+```bash
+cd benchmarks/QueueEngine.Benchmarks
+dotnet run
 ```
 
 ## Quick Start

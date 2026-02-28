@@ -1,8 +1,8 @@
 {
   "_meta": {
     "version": "3.0.0",
-    "createdAt": "2026-02-27T20:52:51.557Z",
-    "updatedAt": "2026-02-27T20:52:51.557Z",
+    "createdAt": "2026-02-28T00:13:29.399Z",
+    "updatedAt": "2026-02-28T00:13:29.399Z",
     "projectRoot": "C:\\Users\\HANCER MERCEDE\\QueueEngine",
     "projectName": "QueueEngine",
     "scanCommand": "node testcraft-init.js",
@@ -13,7 +13,7 @@
     "version": "0.0.0",
     "runtime": ".NET",
     "language": "C#",
-    "framework": ".NET",
+    "framework": "ASP.NET Core",
     "packageManager": "NuGet / dotnet CLI",
     "hasTypeScript": false
   },
@@ -27,6 +27,8 @@
       "app"
     ],
     "allDirectories": [
+      "benchmarks",
+      "benchmarks\\QueueEngine.Benchmarks",
       "Config",
       "Core",
       "Data",
@@ -40,9 +42,23 @@
       "QueueEngine.Tests\\Handlers",
       "QueueEngine.Tests\\Models",
       "QueueEngine.Tests\\Workers",
+      "Scheduling",
+      "src",
+      "src\\QueueEngine.Dashboard",
+      "src\\QueueEngine.Dashboard\\wwwroot",
       "Workers"
     ],
-    "folderMap": {}
+    "folderMap": {
+      "src": {
+        "fileCount": 1,
+        "subDirs": [
+          "QueueEngine.Dashboard"
+        ],
+        "files": [
+          "src\\QueueEngine.Dashboard\\Program.cs"
+        ]
+      }
+    }
   },
   "detectedTools": {
     "testFramework": "xUnit",
@@ -50,8 +66,10 @@
     "assertLib": null,
     "e2eTool": null,
     "configFiles": [
+      "benchmarks\\QueueEngine.Benchmarks\\QueueEngine.Benchmarks.csproj",
       "QueueEngine.csproj",
-      "QueueEngine.Tests\\QueueEngine.Tests.csproj"
+      "QueueEngine.Tests\\QueueEngine.Tests.csproj",
+      "src\\QueueEngine.Dashboard\\QueueEngine.Dashboard.csproj"
     ],
     "testScript": "dotnet test",
     "hasCoverage": true
@@ -62,7 +80,7 @@
     "assertLib": null,
     "e2eTool": null,
     "confirmed": true,
-    "confirmedAt": "2026-02-27T20:52:51.557Z"
+    "confirmedAt": "2026-02-28T00:13:29.399Z"
   },
   "learnedStyle": {
     "fileNaming": ".test",
@@ -113,9 +131,10 @@
       "QueueEngine.Tests\\Models",
       "QueueEngine.Tests\\Workers"
     ],
-    "srcFileCount": 14,
+    "srcFileCount": 18,
     "testFileCount": 5,
     "allSrcFiles": [
+      "benchmarks\\QueueEngine.Benchmarks\\Program.cs",
       "Config\\QueueEngineOptions.cs",
       "Core\\IQueueEngine.cs",
       "Core\\QueueEngine.cs",
@@ -126,6 +145,9 @@
       "Program.cs",
       "QueueEngineExtensions.cs",
       "QueueEngineHealthCheck.cs",
+      "Scheduling\\IScheduler.cs",
+      "Scheduling\\Scheduler.cs",
+      "src\\QueueEngine.Dashboard\\Program.cs",
       "Workers\\IJobHandler.cs",
       "Workers\\IQueueWorkerPool.cs",
       "Workers\\QueueWorkerPool.cs",
@@ -140,7 +162,7 @@
     ]
   },
   "progress": {
-    "coveragePercent": 43,
+    "coveragePercent": 33,
     "testedFiles": [
       "Config\\QueueEngineOptions.cs",
       "Core\\IQueueEngine.cs",
@@ -150,22 +172,26 @@
       "Workers\\RateLimiter.cs"
     ],
     "untestedFiles": [
+      "src\\QueueEngine.Dashboard\\Program.cs",
+      "benchmarks\\QueueEngine.Benchmarks\\Program.cs",
       "Data\\IJobRepository.cs",
       "Data\\JobRepository.cs",
       "Handlers\\ExampleHandlers.cs",
       "Program.cs",
       "QueueEngineExtensions.cs",
       "QueueEngineHealthCheck.cs",
+      "Scheduling\\IScheduler.cs",
+      "Scheduling\\Scheduler.cs",
       "Workers\\IJobHandler.cs",
       "Workers\\IQueueWorkerPool.cs"
     ],
-    "totalSrcFiles": 14,
+    "totalSrcFiles": 18,
     "nextSuggested": [
+      "src\\QueueEngine.Dashboard\\Program.cs",
+      "benchmarks\\QueueEngine.Benchmarks\\Program.cs",
       "Data\\IJobRepository.cs",
       "Data\\JobRepository.cs",
-      "Handlers\\ExampleHandlers.cs",
-      "Program.cs",
-      "QueueEngineExtensions.cs"
+      "Handlers\\ExampleHandlers.cs"
     ],
     "lastTestedFile": null,
     "lastTestedAt": null
